@@ -1,0 +1,30 @@
+{
+  "name": "jarvis-ops-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Approval-gated personal operations agent powered by TrueForge.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n ui,api,mcp -c cyan,magenta,yellow \"npm:dev -w @jarvis/control-center\" \"npm:dev -w @jarvis/orchestrator\" \"npm:dev -w @jarvis/google-workspace-mcp\"",
+    "dev:ui": "npm run dev -w @jarvis/control-center",
+    "dev:api": "npm run dev -w @jarvis/orchestrator",
+    "dev:mcp": "npm run dev -w @jarvis/google-workspace-mcp",
+    "build": "npm run build --workspaces --if-present",
+    "check": "npm run typecheck --workspaces --if-present && npm run test --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "setup:trueforge": "tsx scripts/setup-trueforge.ts",
+    "trueforge": "npx @truefoundry/trueforge@latest"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "concurrently": "^9.2.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
