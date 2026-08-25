@@ -13,6 +13,17 @@ export function realtimeVoiceAvailable(): boolean {
   return Boolean(env.OPENAI_API_KEY);
 }
 
+export function createRealtimeMultipartBody(sdp: string, session: object): FormData {
+  const form = new FormData();
+  form.set('sdp', new Blob([sdp], { type: 'application/sdp' }), 'offer.sdp');
+  form.set(
+    'session',
+    new Blob([JSON.stringify(session)], { type: 'application/json' }),
+    'session.json',
+  );
+  return form;
+}
+
 export async function createRealtimeVoiceCall(offerSdp: string): Promise<string> {
   const sdp = offerSdp.trim();
   if (!sdp || sdp.length > MAX_SDP_CHARACTERS) throw new Error('Invalid WebRTC session description');
@@ -32,13 +43,7 @@ export async function createRealtimeVoiceCall(offerSdp: string): Promise<string>
 
   // OpenAI's Realtime Calls API expects typed multipart parts. Sending these as
   // generic FormData strings can make the SDP parser see an empty/invalid offer.
-  const form = new FormData();
-  form.set('sdp', new Blob([sdp], { type: 'application/sdp' }), 'offer.sdp');
-  form.set(
-    'session',
-    new Blob([JSON.stringify(session)], { type: 'application/json' }),
-    'session.json',
-  );
+  const form = createRealtimeMultipartBody(sdp, session);
 
   const response = await fetch(REALTIME_CALLS_URL, {
     method: 'POST',
