@@ -38,14 +38,14 @@ async function consumeNdjson(response: Response, onEvent: (event: StreamEvent) =
   if (buffer.trim()) onEvent(JSON.parse(buffer) as StreamEvent);
 }
 
-export async function getHealth(): Promise<Health> {
-  const response = await fetch('/api/health');
+export async function getHealth(signal?: AbortSignal): Promise<Health> {
+  const response = await fetch('/api/health', { signal });
   if (!response.ok) throw new Error(await parseError(response));
   return (await response.json()) as Health;
 }
 
-export async function createSession(): Promise<string> {
-  const response = await fetch('/api/sessions', { method: 'POST' });
+export async function createSession(signal?: AbortSignal): Promise<string> {
+  const response = await fetch('/api/sessions', { method: 'POST', signal });
   if (!response.ok) throw new Error(await parseError(response));
   const payload = (await response.json()) as { sessionId: string };
   return payload.sessionId;
@@ -55,11 +55,13 @@ export async function runTurn(
   sessionId: string,
   command: string,
   onEvent: (event: StreamEvent) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/turns`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ command }),
+    signal,
   });
   await consumeNdjson(response, onEvent);
 }
@@ -68,11 +70,13 @@ export async function resolveApproval(
   sessionId: string,
   decisions: ApprovalDecision[],
   onEvent: (event: StreamEvent) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/approvals`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ decisions }),
+    signal,
   });
   await consumeNdjson(response, onEvent);
 }

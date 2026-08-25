@@ -17,16 +17,28 @@ export type ClientEvent =
   | { type: 'error'; message: string };
 
 type EventIndex = Map<string, TrueForgeApi.TurnStreamingEvent>;
+const DEFAULT_MAX_EVENTS = 256;
 
 export class SessionEventState {
-  readonly events: EventIndex = new Map();
+  private readonly events: EventIndex = new Map();
+
+  constructor(private readonly maxEvents = DEFAULT_MAX_EVENTS) {}
+
+  private remember(event: TrueForgeApi.TurnStreamingEvent): void {
+    this.events.set(event.id, event);
+    while (this.events.size > this.maxEvents) {
+      const oldest = this.events.keys().next().value as string | undefined;
+      if (!oldest) break;
+      this.events.delete(oldest);
+    }
+  }
 
   ingest(event: TrueForgeApi.TurnStreamingEvent): ClientEvent[] {
     if (isEventDelta(event)) {
       const base = this.events.get(event.id);
       if (base) mergeEventDelta(base, event);
     } else {
-      this.events.set(event.id, event);
+      this.remember(event);
     }
 
     switch (event.type) {
@@ -115,6 +127,14 @@ export class SessionEventState {
             ...(call.toolInfo.type === 'mcp' ? { serverName: call.toolInfo.serverName } : {}),
             arguments: call.function.arguments,
           });
+        }
+        if (calls.length !== event.toolCalls.length || calls.length === 0) {
+          return [
+            {
+              type: 'error',
+              message: 'Approval details could not be reconstructed safely. Start a new turn and try again.',
+            },
+          ];
         }
         return [
           { type: 'status', status: 'paused' },
