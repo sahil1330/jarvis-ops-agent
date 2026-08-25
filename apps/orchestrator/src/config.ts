@@ -9,6 +9,7 @@ const optionalString = z.string().optional().transform((value) => value || undef
 
 export const env = z
   .object({
+    ORCHESTRATOR_HOST: z.string().default('127.0.0.1'),
     ORCHESTRATOR_PORT: z.coerce.number().int().positive().default(8787),
     CONTROL_CENTER_ORIGIN: z.string().default('http://localhost:5173'),
     TRUEFORGE_BASE_URL: z.url().default('http://localhost:8790'),
