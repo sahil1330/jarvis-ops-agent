@@ -13,7 +13,7 @@ export const demoEmails = [
     threadId: 'demo-thread-2',
     from: 'Build Monitor <ci@example.com>',
     subject: 'Production deployment completed',
-    date: new Date(Date.now() - 24 * 60 * 1000).toISOString(),
+    date: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
     snippet: 'The release completed successfully. No action is required.',
     unread: true,
   },

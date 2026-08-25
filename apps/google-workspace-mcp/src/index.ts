@@ -1,7 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { env } from './config.js';
+import { bearerTokenMatches } from './auth.js';
+import { env, requireMcpBearerToken } from './config.js';
 import { registerGoogleWorkspaceTools } from './tools.js';
 
 function createServer(): McpServer {
@@ -14,6 +15,7 @@ function createServer(): McpServer {
 }
 
 const app = createMcpExpressApp();
+const mcpBearerToken = requireMcpBearerToken();
 
 app.get('/healthz', (_request, response) => {
   response.json({
@@ -21,6 +23,15 @@ app.get('/healthz', (_request, response) => {
     service: 'jarvis-google-workspace-mcp',
     mode: env.JARVIS_DEMO_MODE ? 'demo' : 'live',
   });
+});
+
+app.use('/mcp', (request, response, next) => {
+  if (!bearerTokenMatches(request.headers.authorization, mcpBearerToken)) {
+    response.setHeader('www-authenticate', 'Bearer');
+    response.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  next();
 });
 
 app.post('/mcp', async (request, response) => {
@@ -62,11 +73,11 @@ app.delete('/mcp', (_request, response) => {
   });
 });
 
-app.listen(env.MCP_PORT, (error?: Error) => {
+app.listen(env.MCP_PORT, env.MCP_HOST, (error?: Error) => {
   if (error) {
     console.error(error);
     process.exit(1);
   }
-  console.log(`Jarvis Google Workspace MCP listening on http://localhost:${env.MCP_PORT}/mcp`);
+  console.log(`Jarvis Google Workspace MCP listening on http://${env.MCP_HOST}:${env.MCP_PORT}/mcp`);
   console.log(`Mode: ${env.JARVIS_DEMO_MODE ? 'DEMO' : 'LIVE'}`);
 });

@@ -91,6 +91,14 @@ npm install
 
 Fill in the Google OAuth variables in `.env`, then start the Google MCP service:
 
+Generate a dedicated bearer token for the private TrueForge-to-MCP connection and place it in `JARVIS_MCP_BEARER_TOKEN`:
+
+```bash
+openssl rand -hex 32
+```
+
+The setup script stores this token as a redacted TrueForge header credential. The MCP service binds to `127.0.0.1` by default; set `MCP_HOST` explicitly only when deploying it behind authenticated HTTPS.
+
 ```bash
 npm run dev:mcp
 ```
@@ -138,6 +146,8 @@ The test suite covers approval-call reconstruction, root/subagent stream isolati
 
 - Read tools are autonomous; write tools are explicitly named in `requireApprovalForTools`.
 - MCP annotations also mark write and destructive behavior.
+- Every MCP request requires a constant-time-checked bearer credential held by TrueForge.
+- The MCP service binds to `127.0.0.1` unless an explicit deployment host is configured.
 - The Google refresh token remains in the MCP process, never in the model or sandbox.
 - The sandbox receives no Google or model credentials.
 - Email headers are sanitized before constructing RFC 2822 messages.
