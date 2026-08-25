@@ -15,7 +15,7 @@ Jarvis turns that one instruction into observable work:
 3. Inbox and calendar subagents investigate in parallel.
 4. Real Gmail and Google Calendar data arrives through our MCP server.
 5. Code Mode uses a Daytona sandbox to normalize time zones and calculate conflicts.
-6. Natural-language TrueForge output is spoken through a persistent OpenAI Realtime WebRTC voice channel while tools continue running.
+6. Natural-language TrueForge output is spoken through a persistent OpenAI Realtime WebRTC voice channel while tools continue running. A short client playout buffer gives the next speech request time to render and removes transport silence between queued messages.
 7. Jarvis prepares the exact email and calendar mutation.
 8. TrueForge pauses on `tool.approval_required`.
 9. The control center shows the arguments and lets the user allow or deny them.
@@ -57,8 +57,8 @@ The Realtime model is intentionally **not** a second agent. It receives no Googl
 
 Jarvis uses three progressively degraded voice layers:
 
-- **Preferred output:** a persistent WebRTC connection using `gpt-realtime-1.5` with the `marin` voice for lower-latency, more conversational speech.
-- **Output fallback:** `gpt-4o-mini-tts`, then browser speech synthesis.
+- **Preferred output:** a persistent WebRTC connection using `gpt-realtime-1.5` with the `marin` voice, ordered lookahead playout and brisk conversational pacing.
+- **Output fallback:** `gpt-4o-mini-tts` with one ordered clip prefetched while the current clip plays, then browser speech synthesis.
 - **Input:** browser recording with adaptive client-side voice activity detection, followed by `gpt-4o-mini-transcribe`. After actual speech begins, roughly 900 ms of sustained silence ends the recording automatically. The mic button remains a manual stop fallback.
 
 Voice output follows TrueForge response text as it streams. Raw tool arguments, execution trace diagnostics and sandbox output are never narrated.

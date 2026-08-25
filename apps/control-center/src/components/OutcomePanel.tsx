@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { AlertTriangle, CheckCircle2, LoaderCircle, MessageSquareText, Volume2, VolumeX } from 'lucide-react';
+import { useConversationalReveal } from '../hooks/useConversationalReveal';
 import { useSpeechOutput } from '../hooks/useSpeechOutput';
 import { consumeSpeechSegments } from '../lib/speech-segments';
 import type { AgentPhase, ApprovalCall, OperationNotice, ProgressNarration } from '../types';
@@ -67,6 +68,7 @@ export function OutcomePanel({
   const spokenNarrationIds = useRef(new Set<string>());
   const pendingSpeech = useRef('');
   const voice = useSpeechOutput(realtimeVoiceAvailable, neuralTtsAvailable);
+  const revealedResponse = useConversationalReveal(response, phase === 'running');
   const latestNarration = narrations.at(-1);
 
   const flushPendingSpeech = useCallback(() => {
@@ -198,7 +200,11 @@ export function OutcomePanel({
         {response && (
           <div className="agent-response" role="log" aria-live="polite" aria-relevant="additions text">
             <div className="response-label"><i aria-hidden="true" /> JARVIS RESPONSE</div>
-            <p>{response}</p>
+            <span className="sr-only">{response}</span>
+            <p aria-hidden="true">
+              {revealedResponse}
+              {revealedResponse.length < response.length && <span className="response-caret" />}
+            </p>
             {(metrics.totalTokens !== undefined || metrics.totalCostUsd !== undefined) && (
               <small>{metrics.totalTokens?.toLocaleString() ?? '—'} tokens · ${metrics.totalCostUsd?.toFixed(4) ?? '—'}</small>
             )}

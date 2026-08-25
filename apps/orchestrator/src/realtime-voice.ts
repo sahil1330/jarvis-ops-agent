@@ -1,5 +1,6 @@
 import { AudioServiceUnavailableError } from './audio.js';
 import { env } from './config.js';
+import { createUpstreamHttpError } from './http-errors.js';
 
 const REALTIME_CALLS_URL = 'https://api.openai.com/v1/realtime/calls';
 const MAX_SDP_CHARACTERS = 64_000;
@@ -15,18 +16,15 @@ export function realtimeVoiceAvailable(): boolean {
 
 export function createRealtimeMultipartBody(sdp: string, session: object): FormData {
   const form = new FormData();
-  form.set('sdp', new Blob([sdp], { type: 'application/sdp' }), 'offer.sdp');
-  form.set(
-    'session',
-    new Blob([JSON.stringify(session)], { type: 'application/json' }),
-    'session.json',
-  );
+  form.set('sdp', sdp);
+  form.set('session', JSON.stringify(session));
   return form;
 }
 
 export async function createRealtimeVoiceCall(offerSdp: string): Promise<string> {
-  const sdp = offerSdp.trim();
-  if (!sdp || sdp.length > MAX_SDP_CHARACTERS) throw new Error('Invalid WebRTC session description');
+  // Preserve the browser-generated offer, including its terminating CRLF.
+  const sdp = offerSdp;
+  if (!sdp.trim() || sdp.length > MAX_SDP_CHARACTERS) throw new Error('Invalid WebRTC session description');
 
   const session = {
     type: 'realtime',
@@ -41,20 +39,20 @@ export async function createRealtimeVoiceCall(offerSdp: string): Promise<string>
       'You are the realtime voice renderer for Jarvis. Never invent, answer, summarize, or add content. For each response request, say only the exact supplied text. Speak like a natural human personal assistant: relaxed, warm, conversational, confident, and fluid. Use ordinary pacing, natural emphasis, contractions, and subtle emotion. Avoid announcer delivery, exaggerated formality, robotic cadence, dramatic pauses, or over-enunciation.',
   };
 
-  // OpenAI's Realtime Calls API expects typed multipart parts. Sending these as
-  // generic FormData strings can make the SDP parser see an empty/invalid offer.
-  const form = createRealtimeMultipartBody(sdp, session);
+  const multipart = createRealtimeMultipartBody(sdp, session);
 
   const response = await fetch(REALTIME_CALLS_URL, {
     method: 'POST',
-    headers: { authorization: `Bearer ${requireOpenAiKey()}` },
-    body: form,
+    headers: {
+      authorization: `Bearer ${requireOpenAiKey()}`,
+    },
+    // fetch supplies the multipart boundary required by the encoded FormData.
+    body: multipart,
     signal: AbortSignal.timeout(20_000),
   });
 
   if (!response.ok) {
-    const detail = (await response.text()).slice(0, 1_000);
-    throw new Error(`Realtime voice session failed (${response.status}): ${detail}`);
+    throw await createUpstreamHttpError(response, 'Realtime voice session failed');
   }
 
   const answerSdp = await response.text();

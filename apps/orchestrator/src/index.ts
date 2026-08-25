@@ -3,6 +3,7 @@ import express from 'express';
 import { z } from 'zod';
 import { AudioServiceUnavailableError, neuralAudioCapabilities, synthesizeSpeech, transcribeAudio } from './audio.js';
 import { env } from './config.js';
+import { UpstreamHttpError } from './http-errors.js';
 import { createRealtimeVoiceCall, realtimeVoiceAvailable } from './realtime-voice.js';
 import {
   createSession,
@@ -120,11 +121,30 @@ app.post('/api/sessions/:sessionId/approvals', async (request, response, next) =
   }
 });
 
-app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+app.use((error: unknown, request: express.Request, response: express.Response, _next: express.NextFunction) => {
   const status =
-    error instanceof z.ZodError ? 400 : error instanceof SessionBusyError ? 409 : error instanceof AudioServiceUnavailableError ? 503 : 500;
+    error instanceof z.ZodError
+      ? 400
+      : error instanceof SessionBusyError
+        ? 409
+        : error instanceof AudioServiceUnavailableError
+          ? 503
+          : error instanceof UpstreamHttpError
+            ? error.status >= 400 && error.status < 500
+              ? error.status
+              : 502
+            : 500;
   const message = error instanceof z.ZodError ? 'Invalid request payload' : error instanceof Error ? error.message : 'Unexpected server error';
-  if (status >= 500 && !(error instanceof AudioServiceUnavailableError)) console.error(error);
+  if (error instanceof UpstreamHttpError) {
+    console.error('[orchestrator] Upstream request failed', {
+      method: request.method,
+      path: request.path,
+      upstreamStatus: error.status,
+      message: error.message,
+    });
+  } else if (status >= 500 && !(error instanceof AudioServiceUnavailableError)) {
+    console.error(error);
+  }
   if (!response.headersSent) response.status(status).json({ error: message });
 });
 

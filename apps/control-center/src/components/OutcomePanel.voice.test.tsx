@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { render } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, render } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OutcomePanel } from './OutcomePanel';
 
 const enqueue = vi.fn();
@@ -21,7 +21,13 @@ vi.mock('../hooks/useSpeechOutput', () => ({
 }));
 
 describe('OutcomePanel streaming voice', () => {
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
+    vi.useRealTimers();
     enqueue.mockReset();
     speakNow.mockReset();
     stop.mockReset();
@@ -108,5 +114,33 @@ describe('OutcomePanel streaming voice', () => {
     );
 
     expect(enqueue).not.toHaveBeenCalledWith('Calendar checked.');
+  });
+
+  it('reveals response copy at a conversational pace instead of dumping it at once', () => {
+    vi.useFakeTimers();
+    const panelRef = { current: null };
+    const { container } = render(
+      <OutcomePanel
+        panelRef={panelRef}
+        phase="running"
+        response="I checked your calendar and everything looks clear."
+        narrations={[]}
+        notices={[]}
+        approvals={[]}
+        error=""
+        metrics={{}}
+        realtimeVoiceAvailable
+        neuralTtsAvailable
+        onDecision={vi.fn()}
+      />,
+    );
+
+    const visibleResponse = container.querySelector('.agent-response p');
+    act(() => vi.advanceTimersByTime(0));
+    expect(visibleResponse).toHaveTextContent('I');
+    expect(visibleResponse).not.toHaveTextContent('everything looks clear');
+
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(visibleResponse).toHaveTextContent('I checked your calendar and everything looks clear.');
   });
 });
