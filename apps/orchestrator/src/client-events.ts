@@ -8,9 +8,25 @@ export type ApprovalCall = {
   arguments: string;
 };
 
+export type OperationalSystem = 'gmail' | 'calendar' | 'sandbox';
+
+type ToolPresentation = {
+  system?: OperationalSystem;
+  running: string;
+  completed: string;
+  failed: string;
+};
+
+type ToolCallDetails = {
+  id: string;
+  name: string;
+};
+
 export type ClientEvent =
   | { type: 'status'; status: 'connected' | 'running' | 'paused' | 'done' | 'cancelled' }
-  | { type: 'trace'; id: string; category: 'harness' | 'connector' | 'sandbox' | 'subagent' | 'tool'; title: string; detail?: string; state: 'active' | 'done' | 'waiting' }
+  | { type: 'trace'; id: string; category: 'harness' | 'connector' | 'sandbox' | 'subagent' | 'tool'; title: string; detail?: string; state: 'active' | 'done' | 'waiting' | 'error' }
+  | { type: 'system'; system: OperationalSystem; state: 'ready' | 'active' | 'error'; detail: string }
+  | { type: 'notice'; id: string; severity: 'error' | 'warning'; title: string; message: string; system?: OperationalSystem }
   | { type: 'delta'; content: string }
   | { type: 'approval'; calls: ApprovalCall[] }
   | { type: 'metrics'; totalTokens?: number; totalCostUsd?: number }
@@ -18,6 +34,109 @@ export type ClientEvent =
 
 type EventIndex = Map<string, TrueForgeApi.TurnStreamingEvent>;
 const DEFAULT_MAX_EVENTS = 256;
+const MAX_ERROR_DETAIL_CHARACTERS = 600;
+
+const TOOL_PRESENTATIONS: Record<string, ToolPresentation> = {
+  search_emails: {
+    system: 'gmail',
+    running: 'Searching Gmail',
+    completed: 'Gmail search completed',
+    failed: 'Gmail search failed',
+  },
+  send_email: {
+    system: 'gmail',
+    running: 'Preparing Gmail action',
+    completed: 'Gmail action completed',
+    failed: 'Gmail action failed',
+  },
+  list_calendar_events: {
+    system: 'calendar',
+    running: 'Checking Google Calendar',
+    completed: 'Calendar check completed',
+    failed: 'Calendar check failed',
+  },
+  move_calendar_event: {
+    system: 'calendar',
+    running: 'Preparing calendar change',
+    completed: 'Calendar change completed',
+    failed: 'Calendar change failed',
+  },
+};
+
+function titleFromToolName(name: string): string {
+  return name
+    .split('_')
+    .filter(Boolean)
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+    .join(' ');
+}
+
+function presentationFor(name: string): ToolPresentation {
+  return TOOL_PRESENTATIONS[name] ?? {
+    running: `${titleFromToolName(name)} in progress`,
+    completed: `${titleFromToolName(name)} completed`,
+    failed: `${titleFromToolName(name)} failed`,
+  };
+}
+
+function parseJson(value: string): unknown {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (typeof parsed === 'string' && parsed !== value) return parseJson(parsed);
+    return parsed;
+  } catch {
+    return value;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function errorEnvelope(value: unknown): Record<string, unknown> | null {
+  if (!isRecord(value)) return null;
+  if (
+    value.isError === true ||
+    value.is_error === true ||
+    (value.error !== undefined && value.error !== null && value.error !== false && value.error !== '')
+  ) return value;
+  if (isRecord(value.result)) return errorEnvelope(value.result);
+  return null;
+}
+
+function textFromContent(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const text = value
+    .flatMap((part) => (isRecord(part) && typeof part.text === 'string' ? [part.text] : []))
+    .join('\n')
+    .trim();
+  return text || undefined;
+}
+
+function redactAndBound(value: string): string {
+  return value
+    .replace(/((?:access|refresh)[_-]?token|client[_-]?secret)(["']?\s*[:=]\s*["']?)[^\s,"'}]+/gi, '$1$2[redacted]')
+    .slice(0, MAX_ERROR_DETAIL_CHARACTERS);
+}
+
+function toolErrorMessage(content: string): string | null {
+  const parsed = parseJson(content);
+  const envelope = errorEnvelope(parsed);
+  const plainTextFailure = typeof parsed === 'string' && /^(?:error\b|mcp tool error\b)/i.test(parsed.trim());
+  if (!envelope && !plainTextFailure) return null;
+
+  if (envelope) {
+    const directError = envelope.error;
+    const message =
+      (typeof directError === 'string' ? directError : undefined) ??
+      (isRecord(directError) && typeof directError.message === 'string' ? directError.message : undefined) ??
+      (typeof envelope.message === 'string' ? envelope.message : undefined) ??
+      textFromContent(envelope.content);
+    if (message) return redactAndBound(message);
+  }
+
+  return redactAndBound(typeof parsed === 'string' ? parsed : content);
+}
 
 export class SessionEventState {
   private readonly events: EventIndex = new Map();
@@ -31,6 +150,17 @@ export class SessionEventState {
       if (!oldest) break;
       this.events.delete(oldest);
     }
+  }
+
+  private findToolCall(toolCallId: string): ToolCallDetails | null {
+    const events = Array.from(this.events.values());
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const source = events[index];
+      if (source?.type !== 'model.message') continue;
+      const call = source.toolCalls?.find((candidate) => candidate.id === toolCallId);
+      if (call) return { id: call.id, name: call.toolInfo.name };
+    }
+    return null;
   }
 
   ingest(event: TrueForgeApi.TurnStreamingEvent): ClientEvent[] {
@@ -47,7 +177,7 @@ export class SessionEventState {
           { type: 'status', status: 'running' },
           {
             type: 'trace',
-            id: event.id,
+            id: 'turn:current',
             category: 'harness',
             title: 'TrueForge session started',
             detail: 'Persistent turn opened',
@@ -65,11 +195,36 @@ export class SessionEventState {
           state: 'done' as const,
         }));
 
+      case 'model.message':
+        return (event.toolCalls ?? []).flatMap((call) => {
+          const presentation = presentationFor(call.toolInfo.name);
+          return [
+            {
+              type: 'trace' as const,
+              id: `tool:${call.id}`,
+              category: 'tool' as const,
+              title: presentation.running,
+              detail: call.toolInfo.type === 'mcp' ? `MCP · ${call.toolInfo.serverName}` : 'TrueForge system tool',
+              state: 'active' as const,
+            },
+            ...(presentation.system
+              ? [
+                  {
+                    type: 'system' as const,
+                    system: presentation.system,
+                    state: 'active' as const,
+                    detail: presentation.running,
+                  },
+                ]
+              : []),
+          ];
+        });
+
       case 'thread.created':
         return [
           {
             type: 'trace',
-            id: event.id,
+            id: `thread:${event.threadId}`,
             category: 'subagent',
             title: event.title,
             detail: event.agentInfo.input,
@@ -77,17 +232,38 @@ export class SessionEventState {
           },
         ];
 
-      case 'thread.done':
+      case 'thread.done': {
+        if (event.state.status === 'error') {
+          const message = redactAndBound(event.state.error);
+          return [
+            {
+              type: 'trace',
+              id: `thread:${event.threadId}`,
+              category: 'subagent',
+              title: `${event.title} failed`,
+              detail: message,
+              state: 'error',
+            },
+            {
+              type: 'notice',
+              id: `thread-error:${event.threadId}`,
+              severity: 'error',
+              title: `${event.title} failed`,
+              message,
+            },
+          ];
+        }
         return [
           {
             type: 'trace',
-            id: event.id,
+            id: `thread:${event.threadId}`,
             category: 'subagent',
             title: event.title,
             detail: 'Subagent completed',
             state: 'done',
           },
         ];
+      }
 
       case 'sandbox.created':
         return [
@@ -99,19 +275,65 @@ export class SessionEventState {
             detail: `Sandbox ${event.sandboxId.slice(0, 10)}…`,
             state: 'done',
           },
+          { type: 'system', system: 'sandbox', state: 'ready', detail: 'Isolated sandbox provisioned' },
         ];
 
-      case 'tool.response':
+      case 'tool.response': {
+        const call = this.findToolCall(event.toolCallId);
+        const presentation = presentationFor(call?.name ?? 'tool_call');
+        const errorMessage = toolErrorMessage(event.content);
+        if (errorMessage) {
+          return [
+            {
+              type: 'trace',
+              id: `tool:${event.toolCallId}`,
+              category: 'tool',
+              title: presentation.failed,
+              detail: errorMessage,
+              state: 'error',
+            },
+            ...(presentation.system
+              ? [
+                  {
+                    type: 'system' as const,
+                    system: presentation.system,
+                    state: 'error' as const,
+                    detail: errorMessage,
+                  },
+                ]
+              : []),
+            {
+              type: 'notice',
+              id: `tool-error:${event.toolCallId}`,
+              severity: 'error',
+              title: presentation.failed,
+              message: errorMessage,
+              ...(presentation.system ? { system: presentation.system } : {}),
+            },
+          ];
+        }
+
         return [
           {
             type: 'trace',
-            id: event.id,
+            id: `tool:${event.toolCallId}`,
             category: 'tool',
-            title: 'Tool call completed',
-            detail: `Call ${event.toolCallId.slice(0, 12)}…`,
+            title: presentation.completed,
+            detail: call ? `Tool · ${call.name}` : `Call ${event.toolCallId.slice(0, 12)}…`,
             state: 'done',
           },
+          ...(presentation.system
+            ? [
+                {
+                  type: 'system' as const,
+                  system: presentation.system,
+                  state: 'ready' as const,
+                  detail: presentation.completed,
+                },
+              ]
+            : []),
         ];
+      }
 
       case 'tool.approval_required': {
         const calls: ApprovalCall[] = [];
@@ -163,7 +385,7 @@ export class SessionEventState {
           { type: 'status', status: 'done' },
           {
             type: 'trace',
-            id: event.id,
+            id: 'turn:current',
             category: 'harness',
             title: 'Turn completed',
             detail: 'Session state and audit trail persisted',

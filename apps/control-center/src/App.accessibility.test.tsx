@@ -27,7 +27,8 @@ describe('App accessibility', () => {
       'aria-keyshortcuts',
       'Control+Enter Meta+Enter',
     );
-    expect(screen.getAllByText('Available', { selector: '.system-status span' })).toHaveLength(4);
+    expect(screen.getAllByText('Available', { selector: '.system-status span' })).toHaveLength(1);
+    expect(screen.getAllByText('Not checked', { selector: '.system-status span' })).toHaveLength(3);
 
     const results = await axe.run(container, {
       rules: { 'color-contrast': { enabled: false } },

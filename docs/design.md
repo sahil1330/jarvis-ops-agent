@@ -17,10 +17,12 @@ The control center does not call Gmail or Calendar write APIs. It renders TrueFo
 The desktop layout uses three stable regions:
 
 - **Command** — voice/text input, a clear description of the safety promise and realistic starter commands.
-- **Execution trace** — ordered TrueForge, MCP, sandbox, subagent and tool activity with explicit running, waiting and completed states.
-- **Systems** — readable availability labels for the harness, Gmail, Calendar and sandbox, plus the active safety policy and live/demo mode.
+- **Operations** — an always-visible live outcome above the ordered TrueForge, MCP, sandbox, subagent and tool trace.
+- **Systems** — independent readiness labels for the harness, Gmail, Calendar and sandbox, plus the active safety policy and live/demo mode.
 
-The result dock appears only when there is output, an error or a decision to make. A human checkpoint receives focus as soon as it appears and shows the original tool name and arguments before presenting Deny and Approve controls.
+The live outcome never sits below the desktop fold. It shows working feedback immediately, retains tool-specific errors even when the agent continues, streams the final response in the same region and hosts any approval checkpoint. On smaller screens, starting a command scrolls this region into view. Operational errors and human checkpoints receive focus when they appear.
+
+System readiness is not inferred from the TrueForge health check. Gmail, Calendar and Sandbox begin as **Not checked**, move to **Working** when their own operation starts and become **Available** or **Failed** only from that operation's result.
 
 ## Interaction states
 
@@ -28,10 +30,11 @@ The result dock appears only when there is output, an error or a decision to mak
 |---|---|---|
 | Checking | Harness health has not resolved; mode and agent identity remain unknown | Wait or start a new session |
 | Ready | The command input and suggested tasks are available | Type, use voice input or choose a suggestion |
-| Working | Header and trace report active execution; inputs are protected from duplicate submission | Watch the trace or cancel with New session |
+| Working | Header and live outcome report active execution; inputs are protected from duplicate submission | Watch the outcome and trace or cancel with New session |
 | Approval needed | The proposed side effects and exact arguments are visible; no external write has happened | Deny or approve the displayed calls |
 | Complete | Final response and token/cost metrics are visible | Review results or start a new session |
-| Error/unavailable | A textual error is announced and the status is not presented as healthy | Read the reason and start a clean session |
+| Tool failed | A named persistent alert, failed trace step and per-system Failed state expose the error while Jarvis may still explain or recover | Read the reason, reconnect the service or retry |
+| Error/unavailable | A textual fatal error is announced and the status is not presented as healthy | Read the reason and start a clean session |
 
 Status is never communicated by colour alone. Text labels accompany system indicators, live execution phases and errors.
 
@@ -56,7 +59,7 @@ The interface targets WCAG 2.2 AA principles without claiming formal conformance
 |---|---|
 | Structure | Header, main, footer, labelled sections and a skip link provide predictable landmarks. |
 | Keyboard access | Native controls, visible focus rings, a skip link and `Ctrl/⌘ + Enter` command submission are supported. |
-| Critical focus | The approval heading receives programmatic focus when a human decision becomes necessary. |
+| Critical focus | Operational errors and the approval heading receive programmatic focus when attention becomes necessary. |
 | Accessible names | The command input, voice toggle, system rail, suggested commands and action controls have explicit or visible names. |
 | Dynamic updates | Harness status, speech state, execution trace, agent response and errors use appropriate live/status semantics. |
 | Non-colour communication | Every system dot and execution phase has a visible text label. |
@@ -68,9 +71,9 @@ The interface targets WCAG 2.2 AA principles without claiming formal conformance
 
 ## Responsive behavior
 
-- **Wide desktop:** command, trace and systems remain simultaneously visible for judging and operational awareness.
-- **Tablet:** command and trace stay side-by-side while systems collapse into a horizontal rail.
-- **Mobile:** regions stack in task order, but the current harness status remains visible in the header instead of disappearing.
+- **Wide desktop:** command, live outcome, trace and systems remain simultaneously visible for judging and operational awareness.
+- **Tablet:** command and operations stay side-by-side while systems collapse into a horizontal rail.
+- **Mobile:** regions stack in task order, the current harness status remains visible and the live outcome is brought into view when execution begins.
 
 The interface keeps the same action names, approval language and safety model across screen sizes. Mobile is a reflow, not a reduced-capability version.
 
@@ -89,6 +92,7 @@ Colour reinforces the written state but never replaces it. Typography pairs a re
 The repository verifies the UI with:
 
 - component tests for exact approval arguments and user decisions;
+- protocol and interaction tests that preserve a failed Gmail call alongside the eventual agent response;
 - focus behavior at the approval checkpoint;
 - `axe-core` semantic checks for the idle shell and approval state;
 - TypeScript type checking; and
