@@ -22,6 +22,7 @@ export type OperationNotice = {
 export type ProgressNarration = {
   id: string;
   content: string;
+  interrupt?: boolean;
 };
 
 export type TraceItem = {
