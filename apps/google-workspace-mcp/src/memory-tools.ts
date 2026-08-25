@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { env } from './config.js';
 import { MemoryStore, type MemoryCategory } from './memory.js';
 
+const store = new MemoryStore(env.JARVIS_MEMORY_PATH);
+
 function textResult(value: unknown) {
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],
@@ -16,8 +18,6 @@ function looksLikeSecret(value: string): boolean {
 }
 
 export function registerMemoryTools(server: McpServer): void {
-  const store = new MemoryStore(env.JARVIS_MEMORY_PATH);
-
   server.registerTool(
     'recall_memories',
     {
