@@ -13,6 +13,17 @@ export function realtimeVoiceAvailable(): boolean {
   return Boolean(env.OPENAI_API_KEY);
 }
 
+export function createRealtimeMultipartBody(sdp: string, session: object): FormData {
+  const form = new FormData();
+  form.set('sdp', new Blob([sdp], { type: 'application/sdp' }), 'offer.sdp');
+  form.set(
+    'session',
+    new Blob([JSON.stringify(session)], { type: 'application/json' }),
+    'session.json',
+  );
+  return form;
+}
+
 export async function createRealtimeVoiceCall(offerSdp: string): Promise<string> {
   const sdp = offerSdp.trim();
   if (!sdp || sdp.length > MAX_SDP_CHARACTERS) throw new Error('Invalid WebRTC session description');
@@ -30,9 +41,9 @@ export async function createRealtimeVoiceCall(offerSdp: string): Promise<string>
       'You are the realtime voice renderer for Jarvis. Never invent, answer, summarize, or add content. For each response request, say only the exact supplied text. Speak like a natural human personal assistant: relaxed, warm, conversational, confident, and fluid. Use ordinary pacing, natural emphasis, contractions, and subtle emotion. Avoid announcer delivery, exaggerated formality, robotic cadence, dramatic pauses, or over-enunciation.',
   };
 
-  const form = new FormData();
-  form.set('sdp', sdp);
-  form.set('session', JSON.stringify(session));
+  // OpenAI's Realtime Calls API expects typed multipart parts. Sending these as
+  // generic FormData strings can make the SDP parser see an empty/invalid offer.
+  const form = createRealtimeMultipartBody(sdp, session);
 
   const response = await fetch(REALTIME_CALLS_URL, {
     method: 'POST',
@@ -46,5 +57,9 @@ export async function createRealtimeVoiceCall(offerSdp: string): Promise<string>
     throw new Error(`Realtime voice session failed (${response.status}): ${detail}`);
   }
 
-  return response.text();
+  const answerSdp = await response.text();
+  if (!answerSdp.trim().startsWith('v=0')) {
+    throw new Error('Realtime voice session returned an invalid SDP answer');
+  }
+  return answerSdp;
 }
