@@ -11,7 +11,8 @@ if (!script) {
 }
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const appsDirectory = join(root, 'apps');
+const rootManifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+const workspacePatterns = Array.isArray(rootManifest.workspaces) ? rootManifest.workspaces : [];
 
 function containsSource(directory) {
   if (!existsSync(directory)) return false;
@@ -22,21 +23,39 @@ function containsSource(directory) {
   });
 }
 
-for (const entry of readdirSync(appsDirectory, { withFileTypes: true })) {
-  if (!entry.isDirectory()) continue;
+for (const pattern of workspacePatterns) {
+  const match = pattern.match(/^(.+)\/\*$/);
+  if (!match) {
+    console.error(`Unsupported workspace pattern: ${pattern}`);
+    process.exit(1);
+  }
 
-  const workspaceDirectory = join(appsDirectory, entry.name);
-  const packagePath = join(workspaceDirectory, 'package.json');
-  if (!existsSync(packagePath) || !containsSource(join(workspaceDirectory, 'src'))) continue;
+  const workspaceParent = join(root, match[1]);
+  if (!existsSync(workspaceParent)) continue;
 
-  const manifest = JSON.parse(readFileSync(packagePath, 'utf8'));
-  if (!manifest.scripts?.[script]) continue;
+  for (const entry of readdirSync(workspaceParent, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
 
-  const result = spawnSync(
-    process.platform === 'win32' ? 'npm.cmd' : 'npm',
-    ['run', script, '--workspace', manifest.name],
-    { cwd: root, stdio: 'inherit' },
-  );
+    const workspaceDirectory = join(workspaceParent, entry.name);
+    const packagePath = join(workspaceDirectory, 'package.json');
+    if (!existsSync(packagePath) || !containsSource(join(workspaceDirectory, 'src'))) {
+      console.log(`Skipping ${pattern.replace('*', entry.name)}: no implemented source`);
+      continue;
+    }
 
-  if (result.status !== 0) process.exit(result.status ?? 1);
+    const manifest = JSON.parse(readFileSync(packagePath, 'utf8'));
+    if (!manifest.scripts?.[script]) {
+      console.log(`Skipping ${manifest.name}: no ${script} script`);
+      continue;
+    }
+
+    console.log(`Running ${script} in ${manifest.name}`);
+    const result = spawnSync(
+      process.platform === 'win32' ? 'npm.cmd' : 'npm',
+      ['run', script, '--workspace', manifest.name],
+      { cwd: root, stdio: 'inherit' },
+    );
+
+    if (result.status !== 0) process.exit(result.status ?? 1);
+  }
 }

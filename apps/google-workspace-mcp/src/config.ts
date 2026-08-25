@@ -1,0 +1,49 @@
+import { config as loadEnv } from 'dotenv';
+import { resolve } from 'node:path';
+import { z } from 'zod';
+
+loadEnv({ path: resolve(process.cwd(), '../../.env'), quiet: true });
+loadEnv({ quiet: true });
+
+const booleanFromString = z
+  .string()
+  .optional()
+  .transform((value) => value === 'true');
+
+const optionalString = z.string().optional().transform((value) => value || undefined);
+
+const schema = z.object({
+  MCP_HOST: z.string().default('127.0.0.1'),
+  MCP_PORT: z.coerce.number().int().positive().default(8788),
+  JARVIS_MCP_BEARER_TOKEN: optionalString,
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_REFRESH_TOKEN: z.string().optional(),
+  GOOGLE_USER_EMAIL: z.string().default('me'),
+  JARVIS_DEMO_MODE: booleanFromString,
+});
+
+export const env = schema.parse(process.env);
+
+export function requireMcpBearerToken(): string {
+  if (!env.JARVIS_MCP_BEARER_TOKEN || env.JARVIS_MCP_BEARER_TOKEN.length < 32) {
+    throw new Error('JARVIS_MCP_BEARER_TOKEN must contain at least 32 characters');
+  }
+  return env.JARVIS_MCP_BEARER_TOKEN;
+}
+
+export function assertGoogleCredentials(): void {
+  if (env.JARVIS_DEMO_MODE) return;
+
+  const missing = [
+    ['GOOGLE_CLIENT_ID', env.GOOGLE_CLIENT_ID],
+    ['GOOGLE_CLIENT_SECRET', env.GOOGLE_CLIENT_SECRET],
+    ['GOOGLE_REFRESH_TOKEN', env.GOOGLE_REFRESH_TOKEN],
+  ]
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
+
+  if (missing.length > 0) {
+    throw new Error(`Missing Google OAuth configuration: ${missing.join(', ')}`);
+  }
+}
