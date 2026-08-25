@@ -13,6 +13,7 @@ type Props = {
   approvals: ApprovalCall[];
   error: string;
   metrics: { totalTokens?: number; totalCostUsd?: number };
+  realtimeVoiceAvailable: boolean;
   neuralTtsAvailable: boolean;
   onDecision: (status: 'allow' | 'deny') => void;
 };
@@ -25,8 +26,8 @@ const phaseLabels: Record<AgentPhase, string> = {
   error: 'Action needed',
 };
 
-const STREAM_IDLE_FLUSH_MS = 600;
-const MIN_IDLE_FLUSH_CHARACTERS = 16;
+const STREAM_IDLE_FLUSH_MS = 750;
+const MIN_IDLE_FLUSH_CHARACTERS = 24;
 
 function OutcomeHeading({ phase, hasResponse, hasIssues }: { phase: AgentPhase; hasResponse: boolean; hasIssues: boolean }) {
   if (phase === 'error') return <>Jarvis needs your attention</>;
@@ -52,6 +53,7 @@ export function OutcomePanel({
   approvals,
   error,
   metrics,
+  realtimeVoiceAvailable,
   neuralTtsAvailable,
   onDecision,
 }: Props) {
@@ -61,7 +63,7 @@ export function OutcomePanel({
   const attentionKey = error ? `fatal:${error}` : notices.at(-1)?.id;
   const spokenResponseLength = useRef(0);
   const pendingSpeech = useRef('');
-  const voice = useSpeechOutput(neuralTtsAvailable);
+  const voice = useSpeechOutput(realtimeVoiceAvailable, neuralTtsAvailable);
 
   const flushPendingSpeech = useCallback(() => {
     const flushed = consumeSpeechSegments(pendingSpeech.current, '', true);
@@ -118,6 +120,12 @@ export function OutcomePanel({
     }
   }, [approvals, error, flushPendingSpeech, phase, response, voice.enqueue, voice.speakNow, voice.stop]);
 
+  const voiceLabel = voice.mode === 'realtime'
+    ? 'Realtime natural voice'
+    : voice.mode === 'neural'
+      ? 'Neural voice fallback'
+      : 'Browser voice fallback';
+
   return (
     <section className={`outcome-panel phase-${phase}${hasIssues ? ' has-issues' : ''}`} aria-labelledby="outcome-title" ref={panelRef}>
       <div className="outcome-heading">
@@ -135,7 +143,7 @@ export function OutcomePanel({
           onClick={voice.toggle}
           aria-pressed={voice.enabled}
           aria-label={voice.enabled ? 'Mute Jarvis voice' : 'Enable Jarvis voice'}
-          title={voice.enabled ? `Jarvis voice on${neuralTtsAvailable ? ' · neural' : ' · browser fallback'}${voice.speaking ? ' · speaking' : ''}` : 'Jarvis voice muted'}
+          title={voice.enabled ? `${voiceLabel}${voice.speaking ? ' · speaking' : ''}` : 'Jarvis voice muted'}
         >
           {voice.enabled ? <Volume2 size={17} aria-hidden="true" /> : <VolumeX size={17} aria-hidden="true" />}
         </button>
