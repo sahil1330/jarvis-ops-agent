@@ -10,7 +10,7 @@ import type { AgentPhase, ApprovalCall, Health, HealthPhase, OperationNotice, St
 const MAX_RESPONSE_CHARACTERS = 100_000;
 
 const INITIAL_SYSTEMS: SystemStatuses = {
-  harness: { state: 'unknown', detail: 'Checking TrueForge' },
+  harness: { state: 'checking', detail: 'Checking TrueForge' },
   gmail: { state: 'unknown', detail: 'Not checked this session' },
   calendar: { state: 'unknown', detail: 'Not checked this session' },
   sandbox: { state: 'unknown', detail: 'Not used this session' },
@@ -44,7 +44,7 @@ export default function App() {
     window.setTimeout(() => {
       const panel = outcomePanel.current;
       if (!panel) return;
-      const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+      const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
       panel.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'nearest' });
     }, 0);
   }, []);
@@ -118,8 +118,13 @@ export default function App() {
     }
     if (event.type === 'notice') {
       setNotices((current) => {
-        const withoutPrevious = current.filter((notice) => notice.id !== event.id);
-        return [...withoutPrevious, event].slice(-4);
+        const withoutPrevious = current.filter((notice) => (
+          notice.id !== event.id && (!event.system || notice.system !== event.system)
+        ));
+        const next = [...withoutPrevious, event];
+        const systemNotices = next.filter((notice) => notice.system !== undefined);
+        const unscopedNotices = next.filter((notice) => notice.system === undefined).slice(-4);
+        return [...systemNotices, ...unscopedNotices];
       });
       revealOutcome(event.severity === 'error');
       return;
@@ -241,7 +246,12 @@ export default function App() {
     });
   }, [health, healthPhase]);
 
-  const hasToolIssues = notices.some((notice) => notice.severity === 'error');
+  const hasToolIssues = (
+    systems.gmail.state === 'error' ||
+    systems.calendar.state === 'error' ||
+    systems.sandbox.state === 'error' ||
+    notices.some((notice) => notice.severity === 'error')
+  );
   const statusLabel = (() => {
     if (healthPhase === 'loading') return 'Checking harness…';
     if (healthPhase === 'error') return 'Harness unavailable';

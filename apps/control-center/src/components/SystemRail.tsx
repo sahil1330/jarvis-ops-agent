@@ -8,6 +8,7 @@ type Props = {
 
 const stateLabels: Record<SystemState, string> = {
   unknown: 'Not checked',
+  checking: 'Checking',
   offline: 'Unavailable',
   ready: 'Available',
   active: 'Working',
@@ -40,7 +41,7 @@ export function SystemRail({ health, systems }: Props) {
       </div>
       <div className="rail-meta">
         <span>MODE</span><strong>{health ? (health.mode === 'demo' ? 'DEMO DATA' : 'LIVE ACCOUNT') : 'UNKNOWN'}</strong>
-        <span>AGENT</span><strong>{health?.agent ?? (systems.harness.state === 'unknown' ? 'checking…' : 'unavailable')}</strong>
+        <span>AGENT</span><strong>{health?.agent ?? (systems.harness.state === 'checking' ? 'checking…' : 'unavailable')}</strong>
       </div>
     </aside>
   );

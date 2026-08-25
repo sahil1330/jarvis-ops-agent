@@ -1,6 +1,6 @@
 export type SystemName = 'harness' | 'gmail' | 'calendar' | 'sandbox';
 export type OperationalSystem = Exclude<SystemName, 'harness'>;
-export type SystemState = 'unknown' | 'offline' | 'ready' | 'active' | 'error';
+export type SystemState = 'unknown' | 'checking' | 'offline' | 'ready' | 'active' | 'error';
 export type AgentPhase = 'idle' | 'running' | 'paused' | 'done' | 'error';
 export type HealthPhase = 'loading' | 'ready' | 'error';
 

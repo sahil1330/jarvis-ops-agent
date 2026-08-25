@@ -176,6 +176,8 @@ h1 { font-size: clamp(38px, 5vw, 67px); letter-spacing: -.055em; line-height: .9
 .system-status.waiting { color: var(--warning); }
 .system-status.waiting .system-dot { background: var(--warning); }
 .system-status.unknown { color: #7d8996; }
+.system-status.checking { color: var(--warning); }
+.system-status.checking .system-dot { background: var(--warning); animation: pulse 1s infinite; }
 .system-status.error { color: var(--danger); }
 .system-status.error .system-dot { background: var(--danger); box-shadow: 0 0 7px rgba(255, 123, 123, .45); }
 .safety-note { margin-top: auto; border: 1px solid rgba(97, 232, 198, .2); background: rgba(97, 232, 198, .045); display: flex; gap: 10px; padding: 13px; color: var(--accent); }
