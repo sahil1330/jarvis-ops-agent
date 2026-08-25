@@ -16,6 +16,7 @@ const schema = z.object({
   MCP_HOST: z.string().default('127.0.0.1'),
   MCP_PORT: z.coerce.number().int().positive().default(8788),
   JARVIS_MCP_BEARER_TOKEN: optionalString,
+  JARVIS_MEMORY_PATH: z.string().default(resolve(process.cwd(), '../../.jarvis/memory.json')),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REFRESH_TOKEN: z.string().optional(),
