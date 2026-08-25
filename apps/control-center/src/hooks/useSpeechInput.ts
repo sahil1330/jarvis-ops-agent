@@ -47,6 +47,7 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
   const analyserRef = useRef<AnalyserNode | null>(null);
   const vadFrameRef = useRef<number | null>(null);
   const maxRecordingTimerRef = useRef<number | null>(null);
+  const recordingGenerationRef = useRef(0);
 
   const browserSupported = Boolean(window.SpeechRecognition ?? window.webkitSpeechRecognition);
   const neuralSupported = neuralAvailable && typeof MediaRecorder !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia);
@@ -71,6 +72,7 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
   }, []);
 
   const cleanupMedia = useCallback(() => {
+    recordingGenerationRef.current += 1;
     cleanupVad();
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
@@ -79,6 +81,7 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
   }, [cleanupVad]);
 
   useEffect(() => () => {
+    recordingGenerationRef.current += 1;
     recognitionRef.current?.stop();
     const recorder = recorderRef.current;
     if (recorder && recorder.state !== 'inactive') recorder.stop();
@@ -109,38 +112,68 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
     recognition.start();
   }, [onTranscript]);
 
-  const startVoiceEndpointing = useCallback(async (stream: MediaStream, recorder: MediaRecorder) => {
+  const startVoiceEndpointing = useCallback(async (
+    stream: MediaStream,
+    recorder: MediaRecorder,
+    recordingGeneration: number,
+  ) => {
     if (typeof AudioContext === 'undefined') return;
     const context = new AudioContext();
-    audioContextRef.current = context;
-    if (context.state === 'suspended') await context.resume();
-
-    const source = context.createMediaStreamSource(stream);
-    const analyser = context.createAnalyser();
-    analyser.fftSize = 512;
-    analyser.smoothingTimeConstant = 0.12;
-    source.connect(analyser);
-    mediaSourceRef.current = source;
-    analyserRef.current = analyser;
-
-    const samples = new Float32Array(analyser.fftSize);
-    let vadState = createVoiceActivityState();
-    const sample = (now: number) => {
-      if (recorderRef.current !== recorder || recorder.state !== 'recording') return;
-      analyser.getFloatTimeDomainData(samples);
-      const next = updateVoiceActivity(vadState, calculateRms(samples), now);
-      vadState = next.state;
-      if (next.shouldStop) {
-        recorder.stop();
+    try {
+      if (context.state === 'suspended') await context.resume();
+      if (
+        recordingGenerationRef.current !== recordingGeneration ||
+        recorderRef.current !== recorder ||
+        recorder.state !== 'recording'
+      ) {
+        if (context.state !== 'closed') await context.close().catch(() => undefined);
         return;
       }
-      vadFrameRef.current = window.requestAnimationFrame(sample);
-    };
-    vadFrameRef.current = window.requestAnimationFrame(sample);
 
-    maxRecordingTimerRef.current = window.setTimeout(() => {
-      if (recorderRef.current === recorder && recorder.state === 'recording') recorder.stop();
-    }, MAX_RECORDING_MS);
+      const source = context.createMediaStreamSource(stream);
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.12;
+      source.connect(analyser);
+
+      if (
+        recordingGenerationRef.current !== recordingGeneration ||
+        recorderRef.current !== recorder ||
+        recorder.state !== 'recording'
+      ) {
+        source.disconnect();
+        analyser.disconnect();
+        if (context.state !== 'closed') await context.close().catch(() => undefined);
+        return;
+      }
+
+      audioContextRef.current = context;
+      mediaSourceRef.current = source;
+      analyserRef.current = analyser;
+
+      const samples = new Float32Array(analyser.fftSize);
+      let vadState = createVoiceActivityState();
+      const sample = (now: number) => {
+        if (
+          recordingGenerationRef.current !== recordingGeneration ||
+          recorderRef.current !== recorder ||
+          recorder.state !== 'recording'
+        ) return;
+        analyser.getFloatTimeDomainData(samples);
+        const next = updateVoiceActivity(vadState, calculateRms(samples), now);
+        vadState = next.state;
+        if (next.shouldStop) {
+          recorder.stop();
+          return;
+        }
+        vadFrameRef.current = window.requestAnimationFrame(sample);
+      };
+      vadFrameRef.current = window.requestAnimationFrame(sample);
+    } catch (reason) {
+      if (audioContextRef.current === context) audioContextRef.current = null;
+      if (context.state !== 'closed') await context.close().catch(() => undefined);
+      throw reason;
+    }
   }, []);
 
   const startNeuralRecording = useCallback(async () => {
@@ -155,6 +188,7 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
       });
       const mimeType = preferredMimeType();
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      const recordingGeneration = ++recordingGenerationRef.current;
       streamRef.current = stream;
       recorderRef.current = recorder;
       chunksRef.current = [];
@@ -185,8 +219,15 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
       };
       setListening(true);
       recorder.start(250);
-      void startVoiceEndpointing(stream, recorder).catch(() => {
-        // Recording still works with manual stop if Web Audio endpointing is unavailable.
+
+      // The hard cap protects every neural recording, even if Web Audio/VAD is
+      // unavailable or initialization fails.
+      maxRecordingTimerRef.current = window.setTimeout(() => {
+        if (recorderRef.current === recorder && recorder.state === 'recording') recorder.stop();
+      }, MAX_RECORDING_MS);
+
+      void startVoiceEndpointing(stream, recorder, recordingGeneration).catch(() => {
+        // Recording still works with manual stop + the hard cap if endpointing is unavailable.
       });
     } catch {
       cleanupMedia();
