@@ -6,6 +6,16 @@ import { ExecutionTrace } from './components/ExecutionTrace';
 import { OutcomePanel } from './components/OutcomePanel';
 import { SystemRail } from './components/SystemRail';
 import { createSession, getHealth, resolveApproval, runTurn } from './lib/api';
+import {
+  finishApprovalResumeTiming,
+  finishToolTiming,
+  finishTurnTelemetry,
+  markFirstAgentFeedback,
+  resetLatencyTelemetry,
+  startApprovalResumeTiming,
+  startToolTiming,
+  startTurnTelemetry,
+} from './lib/latency';
 import { approvalDecisionNarration } from './lib/progress-narration';
 import type { AgentPhase, ApprovalCall, Health, HealthPhase, OperationNotice, ProgressNarration, StreamEvent, SystemStatuses, TraceItem } from './types';
 const MAX_RESPONSE_CHARACTERS = 100_000;
@@ -94,16 +104,22 @@ export default function App() {
         setSystems((current) => ({ ...current, harness: { state: 'active', detail: 'Waiting for your approval' } }));
       }
       if (event.status === 'done') {
+        finishTurnTelemetry();
         setPhase('done');
         setSystems((current) => ({ ...current, harness: { state: 'ready', detail: 'Turn completed' } }));
       }
       if (event.status === 'cancelled') {
+        finishTurnTelemetry();
         setPhase('idle');
         setSystems((current) => ({ ...current, harness: { state: 'ready', detail: 'Turn cancelled' } }));
       }
       return;
     }
     if (event.type === 'trace') {
+      if (event.category === 'tool') {
+        if (event.state === 'active') startToolTiming(event.id, event.title);
+        if (event.state === 'done' || event.state === 'error') finishToolTiming(event.id);
+      }
       setTrace((current) => {
         const nextItem = { ...event, timestamp: Date.now() };
         const existingIndex = current.findIndex((item) => item.id === event.id);
@@ -145,6 +161,7 @@ export default function App() {
       return;
     }
     if (event.type === 'narration') {
+      markFirstAgentFeedback();
       setNarrations((current) => {
         if (current.some((item) => item.id === event.id)) return current;
         return [...current, { id: event.id, content: event.content }].slice(-8);
@@ -153,6 +170,7 @@ export default function App() {
       return;
     }
     if (event.type === 'delta') {
+      markFirstAgentFeedback();
       setResponse((current) => `${current}${event.content}`.slice(-MAX_RESPONSE_CHARACTERS));
       revealOutcome();
       return;
@@ -171,6 +189,7 @@ export default function App() {
       return;
     }
     if (event.type === 'error') {
+      finishTurnTelemetry();
       setError(event.message);
       setPhase('error');
       revealOutcome(true);
@@ -192,6 +211,7 @@ export default function App() {
 
   const execute = useCallback(async () => {
     if (phase === 'running' || command.trim().length < 2) return;
+    startTurnTelemetry();
     setError('');
     setResponse('');
     setNarrations([]);
@@ -211,6 +231,7 @@ export default function App() {
       await runTurn(activeSession, command.trim(), stream.onEvent, stream.controller.signal);
     } catch (reason) {
       if (isAbortError(reason)) return;
+      finishTurnTelemetry();
       setError(reason instanceof Error ? reason.message : 'The command failed.');
       setPhase('error');
       revealOutcome(true);
@@ -221,6 +242,7 @@ export default function App() {
 
   const decide = useCallback(async (status: 'allow' | 'deny') => {
     if (!sessionId || approvals.length === 0) return;
+    startApprovalResumeTiming();
     setError('');
     setPhase('running');
     const stream = beginStream();
@@ -236,6 +258,7 @@ export default function App() {
         stream.onEvent,
         stream.controller.signal,
         () => {
+          finishApprovalResumeTiming();
           const narration = approvalDecisionNarration(approvals, status);
           if (narration) addLocalNarration(narration, true);
         },
@@ -255,6 +278,7 @@ export default function App() {
     activeStream.current?.abort();
     activeStream.current = null;
     streamGeneration.current += 1;
+    resetLatencyTelemetry();
     setSessionId(null);
     setPhase('idle');
     setTrace([]);
