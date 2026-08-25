@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { configChecks, memoryPathForDoctor, redactError } from './doctor.js';
+import { configChecks, memoryPathForDoctor, redactError } from './doctor-core.js';
 
 describe('Jarvis doctor', () => {
   it('treats personal OAuth mailbox delegation as a blocker', () => {
