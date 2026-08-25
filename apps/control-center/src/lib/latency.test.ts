@@ -26,11 +26,9 @@ describe('latency telemetry', () => {
     startTurnTelemetry();
     now.mockReturnValueOnce(1_120);
     markFirstAgentFeedback();
-    now.mockReturnValueOnce(1_160);
-    markFirstAgentFeedback();
+    markFirstAgentFeedback(); // duplicate does not sample the clock again
     now.mockReturnValueOnce(1_240);
     markFirstVoiceStart();
-    now.mockReturnValueOnce(1_300);
     markFirstVoiceStart();
 
     expect(getLatencySnapshot()).toMatchObject({
