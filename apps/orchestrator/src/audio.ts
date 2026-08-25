@@ -51,7 +51,8 @@ export async function transcribeAudio(audio: Buffer, mimeType: string): Promise<
 
   const extension = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'm4a' : 'webm';
   const form = new FormData();
-  form.append('file', new Blob([audio], { type: mimeType || 'audio/webm' }), `jarvis-input.${extension}`);
+  const bytes = Uint8Array.from(audio);
+  form.append('file', new Blob([bytes], { type: mimeType || 'audio/webm' }), `jarvis-input.${extension}`);
   form.append('model', env.OPENAI_STT_MODEL);
   form.append('language', 'en');
   form.append('response_format', 'json');
