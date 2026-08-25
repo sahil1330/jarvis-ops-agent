@@ -1,6 +1,7 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { AlertTriangle, CheckCircle2, LoaderCircle, MessageSquareText, Volume2, VolumeX } from 'lucide-react';
 import { useSpeechOutput } from '../hooks/useSpeechOutput';
+import { consumeSpeechSegments } from '../lib/speech-segments';
 import type { AgentPhase, ApprovalCall, OperationNotice } from '../types';
 import { ApprovalCard } from './ApprovalCard';
 
@@ -23,6 +24,9 @@ const phaseLabels: Record<AgentPhase, string> = {
   done: 'Complete',
   error: 'Action needed',
 };
+
+const STREAM_IDLE_FLUSH_MS = 600;
+const MIN_IDLE_FLUSH_CHARACTERS = 16;
 
 function OutcomeHeading({ phase, hasResponse, hasIssues }: { phase: AgentPhase; hasResponse: boolean; hasIssues: boolean }) {
   if (phase === 'error') return <>Jarvis needs your attention</>;
@@ -55,27 +59,64 @@ export function OutcomePanel({
   const hasIssues = notices.some((notice) => notice.severity === 'error');
   const attentionTarget = useRef<HTMLDivElement | null>(null);
   const attentionKey = error ? `fatal:${error}` : notices.at(-1)?.id;
+  const spokenResponseLength = useRef(0);
+  const pendingSpeech = useRef('');
   const voice = useSpeechOutput(neuralTtsAvailable);
+
+  const flushPendingSpeech = useCallback(() => {
+    const flushed = consumeSpeechSegments(pendingSpeech.current, '', true);
+    pendingSpeech.current = flushed.rest;
+    for (const segment of flushed.segments) voice.enqueue(segment);
+    return flushed.segments.length;
+  }, [voice.enqueue]);
 
   useEffect(() => {
     if (attentionKey) attentionTarget.current?.focus({ preventScroll: true });
   }, [attentionKey]);
 
   useEffect(() => {
+    if (response.length < spokenResponseLength.current) {
+      voice.stop();
+      spokenResponseLength.current = 0;
+      pendingSpeech.current = '';
+    }
+
+    const incoming = response.slice(spokenResponseLength.current);
+    if (!incoming) return;
+    spokenResponseLength.current = response.length;
+
+    const next = consumeSpeechSegments(pendingSpeech.current, incoming);
+    pendingSpeech.current = next.rest;
+    for (const segment of next.segments) voice.enqueue(segment);
+  }, [response, voice.enqueue, voice.stop]);
+
+  useEffect(() => {
+    if (phase !== 'running' || pendingSpeech.current.trim().length < MIN_IDLE_FLUSH_CHARACTERS) return;
+    const timer = window.setTimeout(flushPendingSpeech, STREAM_IDLE_FLUSH_MS);
+    return () => window.clearTimeout(timer);
+  }, [flushPendingSpeech, phase, response]);
+
+  useEffect(() => {
     if (phase === 'idle') {
       voice.stop();
+      spokenResponseLength.current = 0;
+      pendingSpeech.current = '';
       return;
     }
-    if (phase === 'paused' && approvals.length > 0) {
-      void voice.speak(response || approvalSummary(approvals));
+
+    if (phase === 'paused' || phase === 'done') {
+      const flushedCount = flushPendingSpeech();
+      if (phase === 'paused' && approvals.length > 0 && response.trim().length === 0 && flushedCount === 0) {
+        voice.enqueue(approvalSummary(approvals));
+      }
       return;
     }
-    if (phase === 'done' && response) {
-      void voice.speak(response);
-      return;
+
+    if (phase === 'error' && error) {
+      pendingSpeech.current = '';
+      voice.speakNow(`I need your attention. ${error}`);
     }
-    if (phase === 'error' && error) void voice.speak(`I need your attention. ${error}`);
-  }, [approvals, error, phase, response, voice.speak, voice.stop]);
+  }, [approvals, error, flushPendingSpeech, phase, response, voice.enqueue, voice.speakNow, voice.stop]);
 
   return (
     <section className={`outcome-panel phase-${phase}${hasIssues ? ' has-issues' : ''}`} aria-labelledby="outcome-title" ref={panelRef}>
@@ -94,7 +135,7 @@ export function OutcomePanel({
           onClick={voice.toggle}
           aria-pressed={voice.enabled}
           aria-label={voice.enabled ? 'Mute Jarvis voice' : 'Enable Jarvis voice'}
-          title={voice.enabled ? `Jarvis voice on${neuralTtsAvailable ? ' · neural' : ' · browser fallback'}` : 'Jarvis voice muted'}
+          title={voice.enabled ? `Jarvis voice on${neuralTtsAvailable ? ' · neural' : ' · browser fallback'}${voice.speaking ? ' · speaking' : ''}` : 'Jarvis voice muted'}
         >
           {voice.enabled ? <Volume2 size={17} aria-hidden="true" /> : <VolumeX size={17} aria-hidden="true" />}
         </button>
