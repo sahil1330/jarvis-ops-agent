@@ -258,6 +258,7 @@ export default function App() {
     systems.sandbox.state === 'error' ||
     notices.some((notice) => notice.severity === 'error')
   );
+
   const statusLabel = (() => {
     if (healthPhase === 'loading') return 'Checking harness…';
     if (healthPhase === 'error') return 'Harness unavailable';
@@ -300,6 +301,7 @@ export default function App() {
               approvals={approvals}
               error={error}
               metrics={metrics}
+              neuralTtsAvailable={Boolean(health?.audio?.tts)}
               onDecision={decide}
             />
             <ExecutionTrace items={trace} phase={phase} />
