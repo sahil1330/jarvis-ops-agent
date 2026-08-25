@@ -2,13 +2,14 @@ import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { AlertTriangle, CheckCircle2, LoaderCircle, MessageSquareText, Volume2, VolumeX } from 'lucide-react';
 import { useSpeechOutput } from '../hooks/useSpeechOutput';
 import { consumeSpeechSegments } from '../lib/speech-segments';
-import type { AgentPhase, ApprovalCall, OperationNotice } from '../types';
+import type { AgentPhase, ApprovalCall, OperationNotice, ProgressNarration } from '../types';
 import { ApprovalCard } from './ApprovalCard';
 
 type Props = {
   panelRef: RefObject<HTMLElement | null>;
   phase: AgentPhase;
   response: string;
+  narrations: ProgressNarration[];
   notices: OperationNotice[];
   approvals: ApprovalCall[];
   error: string;
@@ -49,6 +50,7 @@ export function OutcomePanel({
   panelRef,
   phase,
   response,
+  narrations,
   notices,
   approvals,
   error,
@@ -57,13 +59,15 @@ export function OutcomePanel({
   neuralTtsAvailable,
   onDecision,
 }: Props) {
-  const hasFeedback = response.length > 0 || notices.length > 0 || approvals.length > 0 || error.length > 0;
+  const hasFeedback = response.length > 0 || narrations.length > 0 || notices.length > 0 || approvals.length > 0 || error.length > 0;
   const hasIssues = notices.some((notice) => notice.severity === 'error');
   const attentionTarget = useRef<HTMLDivElement | null>(null);
   const attentionKey = error ? `fatal:${error}` : notices.at(-1)?.id;
   const spokenResponseLength = useRef(0);
+  const spokenNarrationIds = useRef(new Set<string>());
   const pendingSpeech = useRef('');
   const voice = useSpeechOutput(realtimeVoiceAvailable, neuralTtsAvailable);
+  const latestNarration = narrations.at(-1);
 
   const flushPendingSpeech = useCallback(() => {
     const flushed = consumeSpeechSegments(pendingSpeech.current, '', true);
@@ -93,6 +97,14 @@ export function OutcomePanel({
   }, [response, voice.enqueue, voice.stop]);
 
   useEffect(() => {
+    for (const narration of narrations) {
+      if (spokenNarrationIds.current.has(narration.id)) continue;
+      spokenNarrationIds.current.add(narration.id);
+      voice.enqueue(narration.content);
+    }
+  }, [narrations, voice.enqueue]);
+
+  useEffect(() => {
     if (phase !== 'running' || pendingSpeech.current.trim().length < MIN_IDLE_FLUSH_CHARACTERS) return;
     const timer = window.setTimeout(flushPendingSpeech, STREAM_IDLE_FLUSH_MS);
     return () => window.clearTimeout(timer);
@@ -102,6 +114,7 @@ export function OutcomePanel({
     if (phase === 'idle') {
       voice.stop();
       spokenResponseLength.current = 0;
+      spokenNarrationIds.current.clear();
       pendingSpeech.current = '';
       return;
     }
@@ -150,6 +163,13 @@ export function OutcomePanel({
       </div>
 
       <div className="outcome-body">
+        {phase === 'running' && latestNarration && (
+          <div className="progress-narration" role="status" aria-live="polite" aria-atomic="true">
+            <span>JARVIS · NOW</span>
+            <p>{latestNarration.content}</p>
+          </div>
+        )}
+
         {notices.map((notice) => (
           <div
             className={`operation-notice severity-${notice.severity}`}
