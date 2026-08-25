@@ -1,5 +1,5 @@
-const MAX_UNPUNCTUATED_CHARS = 220;
-const PREFERRED_CHUNK_CHARS = 170;
+const MAX_UNPUNCTUATED_CHARS = 320;
+const PREFERRED_CHUNK_CHARS = 260;
 
 function normalizeForSpeech(text: string): string {
   return text
@@ -17,7 +17,7 @@ function findNaturalBoundary(buffer: string): number {
   for (let index = 0; index < buffer.length; index += 1) {
     const character = buffer[index];
     if (character === '\n') return index + 1;
-    if (!'.!?:;'.includes(character)) continue;
+    if (!'.!?'.includes(character)) continue;
 
     let boundary = index + 1;
     while (boundary < buffer.length && /[*_~`]/.test(buffer[boundary] ?? '')) boundary += 1;
@@ -30,7 +30,7 @@ function findNaturalBoundary(buffer: string): number {
 function findLengthBoundary(buffer: string): number {
   if (buffer.length <= MAX_UNPUNCTUATED_CHARS) return -1;
   const preferred = buffer.lastIndexOf(' ', PREFERRED_CHUNK_CHARS);
-  if (preferred > 40) return preferred + 1;
+  if (preferred > 60) return preferred + 1;
   const fallback = buffer.indexOf(' ', PREFERRED_CHUNK_CHARS);
   return fallback === -1 ? MAX_UNPUNCTUATED_CHARS : fallback + 1;
 }
