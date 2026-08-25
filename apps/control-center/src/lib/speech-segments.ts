@@ -19,8 +19,10 @@ function findNaturalBoundary(buffer: string): number {
     if (character === '\n') return index + 1;
     if (!'.!?:;'.includes(character)) continue;
 
-    const next = buffer[index + 1];
-    if (next === undefined || /\s/.test(next)) return index + 1;
+    let boundary = index + 1;
+    while (boundary < buffer.length && /[*_~`]/.test(buffer[boundary] ?? '')) boundary += 1;
+    const next = buffer[boundary];
+    if (next === undefined || /\s/.test(next)) return boundary;
   }
   return -1;
 }
