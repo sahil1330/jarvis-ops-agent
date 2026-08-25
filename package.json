@@ -12,9 +12,9 @@
     "dev:ui": "npm run dev -w @jarvis/control-center",
     "dev:api": "npm run dev -w @jarvis/orchestrator",
     "dev:mcp": "npm run dev -w @jarvis/google-workspace-mcp",
-    "build": "npm run build --workspaces --if-present",
-    "check": "npm run typecheck --workspaces --if-present && npm run test --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "build": "node scripts/run-existing-workspaces.mjs build",
+    "check": "node scripts/run-existing-workspaces.mjs typecheck && node scripts/run-existing-workspaces.mjs test",
+    "test": "node scripts/run-existing-workspaces.mjs test",
     "setup:trueforge": "tsx scripts/setup-trueforge.ts",
     "trueforge": "npx @truefoundry/trueforge@latest"
   },
