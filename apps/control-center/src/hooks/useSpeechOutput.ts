@@ -22,7 +22,6 @@ export function useSpeechOutput(neuralAvailable = false) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
   const browserResolveRef = useRef<(() => void) | null>(null);
-  const lastQueuedRef = useRef('');
 
   const cleanupCurrentAudio = useCallback(() => {
     if (audioRef.current) {
@@ -47,7 +46,6 @@ export function useSpeechOutput(neuralAvailable = false) {
     browserResolveRef.current?.();
     browserResolveRef.current = null;
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-    lastQueuedRef.current = '';
     setSpeaking(false);
   }, [cleanupCurrentAudio]);
 
@@ -141,8 +139,7 @@ export function useSpeechOutput(neuralAvailable = false) {
 
   const enqueue = useCallback((rawText: string) => {
     const text = normalizeSpeechText(rawText);
-    if (!enabledRef.current || !text || text === lastQueuedRef.current) return;
-    lastQueuedRef.current = text;
+    if (!enabledRef.current || !text) return;
 
     if (neuralAvailable) {
       const controller = new AbortController();
