@@ -10,8 +10,12 @@ const booleanFromString = z
   .optional()
   .transform((value) => value === 'true');
 
+const optionalString = z.string().optional().transform((value) => value || undefined);
+
 const schema = z.object({
+  MCP_HOST: z.string().default('127.0.0.1'),
   MCP_PORT: z.coerce.number().int().positive().default(8788),
+  JARVIS_MCP_BEARER_TOKEN: optionalString,
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REFRESH_TOKEN: z.string().optional(),
@@ -20,6 +24,13 @@ const schema = z.object({
 });
 
 export const env = schema.parse(process.env);
+
+export function requireMcpBearerToken(): string {
+  if (!env.JARVIS_MCP_BEARER_TOKEN || env.JARVIS_MCP_BEARER_TOKEN.length < 32) {
+    throw new Error('JARVIS_MCP_BEARER_TOKEN must contain at least 32 characters');
+  }
+  return env.JARVIS_MCP_BEARER_TOKEN;
+}
 
 export function assertGoogleCredentials(): void {
   if (env.JARVIS_DEMO_MODE) return;

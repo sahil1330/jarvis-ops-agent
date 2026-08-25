@@ -7,7 +7,12 @@ const baseUrl = process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790';
 const agentName = process.env.JARVIS_AGENT_NAME ?? 'jarvis-personal-ops';
 const mcpName = process.env.JARVIS_MCP_SERVER_NAME ?? 'jarvis-google-workspace';
 const mcpUrl = process.env.JARVIS_MCP_URL ?? 'http://localhost:8788/mcp';
+const mcpBearerToken = process.env.JARVIS_MCP_BEARER_TOKEN;
 const model = process.env.TRUEFORGE_MODEL ?? 'openai/gpt-5.2';
+
+if (!mcpBearerToken || mcpBearerToken.length < 32) {
+  throw new Error('JARVIS_MCP_BEARER_TOKEN must contain at least 32 characters');
+}
 
 const client = new TrueForge({
   baseUrl,
@@ -69,6 +74,10 @@ async function main(): Promise<void> {
       type: 'remote',
       url: mcpUrl,
       description: 'Jarvis-owned Google Workspace tools for Gmail and Calendar.',
+      auth: {
+        type: 'header',
+        headers: { authorization: `Bearer ${mcpBearerToken}` },
+      },
     },
   });
   console.log(`Registered MCP server: ${mcpName}`);

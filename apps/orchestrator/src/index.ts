@@ -6,6 +6,7 @@ import {
   createSession,
   resolveApprovals,
   runCommand,
+  SessionBusyError,
   trueforgeHealth,
 } from './trueforge.js';
 
@@ -74,9 +75,10 @@ app.post('/api/sessions/:sessionId/approvals', async (request, response, next) =
 });
 
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+  const status = error instanceof z.ZodError ? 400 : error instanceof SessionBusyError ? 409 : 500;
   const message = error instanceof z.ZodError ? 'Invalid request payload' : error instanceof Error ? error.message : 'Unexpected server error';
-  console.error(error);
-  if (!response.headersSent) response.status(500).json({ error: message });
+  if (status >= 500) console.error(error);
+  if (!response.headersSent) response.status(status).json({ error: message });
 });
 
 app.listen(env.ORCHESTRATOR_PORT, () => {

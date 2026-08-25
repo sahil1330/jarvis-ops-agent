@@ -7,7 +7,7 @@
 | Control center | Command input, voice capture, trace rendering and approval UI | No |
 | Orchestrator | TrueForge SDK session/turn streaming and approval responses | Optional TrueForge OIDC token |
 | TrueForge | Model loop, MCP routing, subagents, sandbox lifecycle, approval enforcement and session state | Model/MCP configuration |
-| Google Workspace MCP | Narrow Gmail/Calendar tools and Google token refresh | Google OAuth credentials |
+| Google Workspace MCP | Narrow Gmail/Calendar tools and Google token refresh | Google OAuth credentials and a TrueForge-held bearer token |
 | Daytona sandbox | Conflict calculation, time-zone normalization and Code Mode | No account credentials |
 
 ## Approval flow
@@ -19,6 +19,8 @@
 5. The control center renders those exact arguments.
 6. Allow or Deny returns one `user.tool_approval` item per pending call.
 7. TrueForge—not the UI—decides whether the MCP tool may execute.
+
+All traffic from TrueForge to the Google Workspace MCP carries a dedicated bearer credential. Local development binds the MCP listener to `127.0.0.1`; shared deployments must additionally place it behind authenticated HTTPS.
 
 ## Data flow guarantees
 

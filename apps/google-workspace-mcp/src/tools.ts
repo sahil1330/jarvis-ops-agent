@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { env } from './config.js';
 import { demoEmails, demoEvents } from './demo-data.js';
 import { googleRequest, sanitizeHeader, toBase64Url } from './google-client.js';
+import { assertIncreasingRange } from './time.js';
 
 type GmailMessageList = { messages?: Array<{ id: string; threadId: string }> };
 type GmailMessage = {
@@ -101,6 +102,7 @@ export function registerGoogleWorkspaceTools(server: McpServer): void {
       },
     },
     async ({ timeMin, timeMax, calendarId, maxResults }) => {
+      assertIncreasingRange(timeMin, timeMax, 'timeMin', 'timeMax');
       if (env.JARVIS_DEMO_MODE) return textResult(demoEvents.slice(0, maxResults));
 
       const params = new URLSearchParams({
@@ -178,9 +180,7 @@ export function registerGoogleWorkspaceTools(server: McpServer): void {
       },
     },
     async ({ eventId, newStart, newEnd, calendarId, notifyAttendees }) => {
-      if (new Date(newEnd) <= new Date(newStart)) {
-        throw new Error('newEnd must be later than newStart');
-      }
+      assertIncreasingRange(newStart, newEnd, 'newStart', 'newEnd');
       if (env.JARVIS_DEMO_MODE) {
         return textResult({ mode: 'demo', moved: true, eventId, newStart, newEnd });
       }

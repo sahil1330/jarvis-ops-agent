@@ -69,4 +69,23 @@ describe('SessionEventState', () => {
       } as TrueForgeApi.TurnStreamingEvent),
     ).toEqual([]);
   });
+
+  it('fails safely when approval call details cannot be reconstructed', () => {
+    const state = new SessionEventState();
+    const events = state.ingest({
+      type: 'tool.approval_required',
+      id: 'approval-missing-source',
+      threadId: 'main',
+      createdAt: new Date().toISOString(),
+      toolCalls: [{ id: 'call-1', sourceEventId: 'missing-message' }],
+    } as TrueForgeApi.TurnStreamingEvent);
+
+    expect(events).toEqual([
+      {
+        type: 'error',
+        message: 'Approval details could not be reconstructed safely. Start a new turn and try again.',
+      },
+    ]);
+    expect(events.some((event) => event.type === 'approval')).toBe(false);
+  });
 });
