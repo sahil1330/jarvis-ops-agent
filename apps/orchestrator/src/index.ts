@@ -148,6 +148,11 @@ app.use((error: unknown, request: express.Request, response: express.Response, _
   if (!response.headersSent) response.status(status).json({ error: message });
 });
 
-app.listen(env.ORCHESTRATOR_PORT, () => {
-  console.log(`Jarvis orchestrator listening on http://localhost:${env.ORCHESTRATOR_PORT}`);
+const server = app.listen(env.ORCHESTRATOR_PORT, env.ORCHESTRATOR_HOST, () => {
+  console.log(`Jarvis orchestrator listening on http://${env.ORCHESTRATOR_HOST}:${env.ORCHESTRATOR_PORT}`);
+});
+
+server.on('error', (error) => {
+  console.error('Jarvis orchestrator failed to listen', error);
+  process.exit(1);
 });
