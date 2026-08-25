@@ -219,6 +219,7 @@ h1 { font-size: clamp(38px, 5vw, 67px); letter-spacing: -.055em; line-height: .9
 .operation-notice.severity-warning { border-color: rgba(244, 200, 112, .34); background: rgba(244, 200, 112, .07); color: var(--warning); }
 .agent-response { padding: 2px 0 8px; }
 .response-label { color: var(--accent); display: flex; align-items: center; gap: 8px; }
+.response-caret { display: inline-block; width: 2px; height: 1em; margin-left: 3px; vertical-align: -.12em; background: var(--accent); animation: response-caret 1s steps(1) infinite; }
 .agent-response p { max-width: 800px; margin: 12px 0; line-height: 1.65; color: #d0d8df; font-size: 13px; white-space: pre-wrap; }
 .agent-response small { color: #84919f; font-family: 'DM Mono', monospace; font-size: 10px; }
 .outcome-panel .approval-card { margin-top: 14px; padding: 18px; border: 1px solid rgba(244, 200, 112, .28); background: linear-gradient(135deg, rgba(244, 200, 112, .075), transparent 55%); }
@@ -248,6 +249,7 @@ footer span::before { content: '◆'; color: var(--accent); font-size: 5px; marg
 @keyframes pulse { 50% { opacity: .35; transform: scale(.85); } }
 @keyframes trace-in { from { opacity: 0; transform: translateY(7px); } }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes response-caret { 50% { opacity: 0; } }
 
 @media (max-width: 1120px) {
   .workspace { grid-template-columns: 1fr 1fr; height: auto; min-height: calc(100vh - 114px); overflow: visible; }

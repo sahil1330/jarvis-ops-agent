@@ -1,4 +1,5 @@
 import { env } from './config.js';
+import { createUpstreamHttpError } from './http-errors.js';
 
 const OPENAI_AUDIO_BASE_URL = 'https://api.openai.com/v1/audio';
 const MAX_SPEECH_INPUT_CHARACTERS = 4_096;
@@ -27,14 +28,7 @@ async function openAiAudioRequest(path: string, init: RequestInit): Promise<Resp
   });
 
   if (!response.ok) {
-    let detail = `OpenAI audio request failed (${response.status})`;
-    try {
-      const payload = (await response.json()) as { error?: { message?: unknown } };
-      if (typeof payload.error?.message === 'string') detail = payload.error.message;
-    } catch {
-      // Preserve the status-only message when the provider returns a non-JSON error body.
-    }
-    throw new Error(detail);
+    throw await createUpstreamHttpError(response, 'OpenAI audio request failed');
   }
 
   return response;
