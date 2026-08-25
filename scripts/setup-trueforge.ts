@@ -82,7 +82,7 @@ async function main(): Promise<void> {
   });
   console.log(`Registered MCP server: ${mcpName}`);
 
-  const { data: listed } = await client.agents.list();
+  const listed = await client.agents.list();
   const existing = listed.data.find((agent) => agent.name === agentName);
   if (existing) {
     await client.agents.update(existing.id, { manifest });
