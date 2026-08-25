@@ -1,5 +1,5 @@
 import { Bot, Box, Check, CircleDashed, PlugZap, Shield, Wrench } from 'lucide-react';
-import type { TraceItem } from '../types';
+import type { AgentPhase, TraceItem } from '../types';
 
 const icons = {
   harness: Shield,
@@ -9,7 +9,21 @@ const icons = {
   tool: Wrench,
 };
 
-export function ExecutionTrace({ items }: { items: TraceItem[] }) {
+const phaseLabels: Record<AgentPhase, string> = {
+  idle: 'ready',
+  running: 'streaming',
+  paused: 'approval needed',
+  done: 'complete',
+  error: 'stopped',
+};
+
+const stateLabels: Record<TraceItem['state'], string> = {
+  active: 'In progress',
+  done: 'Completed',
+  waiting: 'Waiting',
+};
+
+export function ExecutionTrace({ items, phase }: { items: TraceItem[]; phase: AgentPhase }) {
   return (
     <section className="trace-panel" aria-labelledby="trace-title">
       <div className="section-heading">
@@ -17,10 +31,12 @@ export function ExecutionTrace({ items }: { items: TraceItem[] }) {
           <span>LIVE EXECUTION</span>
           <h2 id="trace-title">Agent trace</h2>
         </div>
-        <div className="live-indicator"><i /> streaming</div>
+        <div className={`live-indicator phase-${phase}`} role="status" aria-live="polite">
+          <i aria-hidden="true" /> {phaseLabels[phase]}
+        </div>
       </div>
 
-      <div className="trace-list" aria-live="polite">
+      <div className="trace-list" aria-live="polite" aria-relevant="additions text" aria-busy={phase === 'running'}>
         {items.length === 0 ? (
           <div className="trace-empty">
             <CircleDashed size={30} />
@@ -38,7 +54,10 @@ export function ExecutionTrace({ items }: { items: TraceItem[] }) {
                   {item.detail && <p>{item.detail}</p>}
                 </div>
                 <div className="trace-state">
-                  {item.state === 'done' ? <Check size={14} /> : <span />}
+                  <span className="sr-only">{stateLabels[item.state]}</span>
+                  {item.state === 'done'
+                    ? <Check size={14} aria-hidden="true" />
+                    : <span className="trace-pulse" aria-hidden="true" />}
                 </div>
               </article>
             );

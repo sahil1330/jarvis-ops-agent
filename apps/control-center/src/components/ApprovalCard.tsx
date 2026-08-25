@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Ban, Check, Mail, ShieldAlert, CalendarClock } from 'lucide-react';
 import type { ApprovalCall } from '../types';
 
@@ -21,30 +22,44 @@ type Props = {
 
 export function ApprovalCard({ calls, busy, onDecision }: Props) {
   const primary = calls[0];
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, [primary?.toolCallId]);
+
   if (!primary) return null;
-  const Icon = primary.toolName.includes('email') ? Mail : CalendarClock;
 
   return (
-    <section className="approval-card" aria-labelledby="approval-title">
+    <section
+      className="approval-card"
+      aria-labelledby="approval-title"
+      aria-describedby="approval-description"
+      aria-busy={busy}
+    >
       <div className="approval-header">
         <div className="approval-symbol"><ShieldAlert size={20} /></div>
         <div>
           <span>HUMAN CHECKPOINT</span>
-          <h2 id="approval-title">Permission required</h2>
+          <h2 id="approval-title" ref={headingRef} tabIndex={-1}>Permission required</h2>
         </div>
       </div>
-      <p>Jarvis has finished its analysis. Nothing external happens until you approve the action below.</p>
+      <p id="approval-description">Jarvis has finished its analysis. Nothing external happens until you approve the action below.</p>
 
-      {calls.map((call) => (
-        <article className="action-preview" key={call.toolCallId}>
-          <div className="action-name"><Icon size={17} /><strong>{call.toolName.replaceAll('_', ' ')}</strong></div>
-          <dl>
-            {prettyArguments(call.arguments).map(([key, value]) => (
-              <div key={key}><dt>{key}</dt><dd>{value}</dd></div>
-            ))}
-          </dl>
-        </article>
-      ))}
+      {calls.map((call) => {
+        const ActionIcon = call.toolName.includes('email') ? Mail : CalendarClock;
+        const actionName = call.toolName.replaceAll('_', ' ');
+        return (
+          <article className="action-preview" key={call.toolCallId} aria-label={`Proposed action: ${actionName}`}>
+            <div className="action-name"><ActionIcon size={17} aria-hidden="true" /><strong>{actionName}</strong></div>
+            <dl>
+              {prettyArguments(call.arguments).map(([key, value]) => (
+                <div key={key}><dt>{key}</dt><dd>{value}</dd></div>
+              ))}
+            </dl>
+          </article>
+        );
+      })}
 
       <div className="approval-actions">
         <button type="button" className="deny-button" onClick={() => onDecision('deny')} disabled={busy}>
