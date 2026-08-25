@@ -13,9 +13,11 @@
     "dev:api": "npm run dev -w @jarvis/orchestrator",
     "dev:mcp": "npm run dev -w @jarvis/google-workspace-mcp",
     "build": "node scripts/run-existing-workspaces.mjs build",
-    "check": "npm run typecheck:scripts && node scripts/run-existing-workspaces.mjs typecheck && node scripts/run-existing-workspaces.mjs test",
+    "check": "npm run typecheck:scripts && npm run test:scripts && node scripts/run-existing-workspaces.mjs typecheck && node scripts/run-existing-workspaces.mjs test",
     "test": "node scripts/run-existing-workspaces.mjs test",
+    "test:scripts": "tsx --test scripts/*.test.ts",
     "typecheck:scripts": "tsc -p tsconfig.scripts.json --pretty false",
+    "doctor": "tsx scripts/doctor.ts",
     "setup:trueforge": "tsx scripts/setup-trueforge.ts",
     "trueforge": "npx @truefoundry/trueforge@latest"
   },
