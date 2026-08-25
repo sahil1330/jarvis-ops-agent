@@ -127,8 +127,19 @@ export async function trueforgeHealth(): Promise<{ connected: boolean; version?:
       signal: AbortSignal.timeout(2_000),
     });
     if (!response.ok) return { connected: false };
-    const payload = (await response.json()) as { version?: string };
-    return { connected: true, ...(payload.version ? { version: payload.version } : {}) };
+
+    if (response.headers.get('content-type')?.includes('application/json')) {
+      try {
+        const payload = (await response.json()) as { version?: unknown };
+        if (typeof payload.version === 'string' && payload.version) {
+          return { connected: true, version: payload.version };
+        }
+      } catch {
+        // A successful health response still proves connectivity when its optional metadata is malformed.
+      }
+    }
+
+    return { connected: true };
   } catch {
     return { connected: false };
   }
