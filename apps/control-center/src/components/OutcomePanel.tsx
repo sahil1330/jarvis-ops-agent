@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { AlertTriangle, CheckCircle2, LoaderCircle, MessageSquareText, Volume2, VolumeX } from 'lucide-react';
 import { useSpeechOutput } from '../hooks/useSpeechOutput';
 import { consumeSpeechSegments } from '../lib/speech-segments';
@@ -24,6 +24,9 @@ const phaseLabels: Record<AgentPhase, string> = {
   done: 'Complete',
   error: 'Action needed',
 };
+
+const STREAM_IDLE_FLUSH_MS = 600;
+const MIN_IDLE_FLUSH_CHARACTERS = 16;
 
 function OutcomeHeading({ phase, hasResponse, hasIssues }: { phase: AgentPhase; hasResponse: boolean; hasIssues: boolean }) {
   if (phase === 'error') return <>Jarvis needs your attention</>;
@@ -60,6 +63,13 @@ export function OutcomePanel({
   const pendingSpeech = useRef('');
   const voice = useSpeechOutput(neuralTtsAvailable);
 
+  const flushPendingSpeech = useCallback(() => {
+    const flushed = consumeSpeechSegments(pendingSpeech.current, '', true);
+    pendingSpeech.current = flushed.rest;
+    for (const segment of flushed.segments) voice.enqueue(segment);
+    return flushed.segments.length;
+  }, [voice.enqueue]);
+
   useEffect(() => {
     if (attentionKey) attentionTarget.current?.focus({ preventScroll: true });
   }, [attentionKey]);
@@ -81,6 +91,12 @@ export function OutcomePanel({
   }, [response, voice.enqueue, voice.stop]);
 
   useEffect(() => {
+    if (phase !== 'running' || pendingSpeech.current.trim().length < MIN_IDLE_FLUSH_CHARACTERS) return;
+    const timer = window.setTimeout(flushPendingSpeech, STREAM_IDLE_FLUSH_MS);
+    return () => window.clearTimeout(timer);
+  }, [flushPendingSpeech, phase, response]);
+
+  useEffect(() => {
     if (phase === 'idle') {
       voice.stop();
       spokenResponseLength.current = 0;
@@ -89,11 +105,8 @@ export function OutcomePanel({
     }
 
     if (phase === 'paused' || phase === 'done') {
-      const flushed = consumeSpeechSegments(pendingSpeech.current, '', true);
-      pendingSpeech.current = flushed.rest;
-      for (const segment of flushed.segments) voice.enqueue(segment);
-
-      if (phase === 'paused' && approvals.length > 0 && response.trim().length === 0) {
+      const flushedCount = flushPendingSpeech();
+      if (phase === 'paused' && approvals.length > 0 && response.trim().length === 0 && flushedCount === 0) {
         voice.enqueue(approvalSummary(approvals));
       }
       return;
@@ -103,7 +116,7 @@ export function OutcomePanel({
       pendingSpeech.current = '';
       voice.speakNow(`I need your attention. ${error}`);
     }
-  }, [approvals, error, phase, response, voice.enqueue, voice.speakNow, voice.stop]);
+  }, [approvals, error, flushPendingSpeech, phase, response, voice.enqueue, voice.speakNow, voice.stop]);
 
   return (
     <section className={`outcome-panel phase-${phase}${hasIssues ? ' has-issues' : ''}`} aria-labelledby="outcome-title" ref={panelRef}>
