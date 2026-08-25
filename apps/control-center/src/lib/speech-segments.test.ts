@@ -44,9 +44,8 @@ describe('consumeSpeechSegments', () => {
     expect(first.rest).toContain('```ts');
 
     const second = consumeSpeechSegments(first.rest, 'console.log(value);\n``` All good.');
-    expect(second.segments).toEqual([]);
-    const final = consumeSpeechSegments(second.rest, '', true);
-    expect(final.segments).toEqual(['All good.']);
+    expect(second.segments).toEqual(['All good.']);
+    expect(second.rest).toBe('');
   });
 
   it('keeps common abbreviations inside their sentence', () => {
