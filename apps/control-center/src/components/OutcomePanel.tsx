@@ -12,6 +12,7 @@ type Props = {
   approvals: ApprovalCall[];
   error: string;
   metrics: { totalTokens?: number; totalCostUsd?: number };
+  neuralTtsAvailable: boolean;
   onDecision: (status: 'allow' | 'deny') => void;
 };
 
@@ -47,13 +48,14 @@ export function OutcomePanel({
   approvals,
   error,
   metrics,
+  neuralTtsAvailable,
   onDecision,
 }: Props) {
   const hasFeedback = response.length > 0 || notices.length > 0 || approvals.length > 0 || error.length > 0;
   const hasIssues = notices.some((notice) => notice.severity === 'error');
   const attentionTarget = useRef<HTMLDivElement | null>(null);
   const attentionKey = error ? `fatal:${error}` : notices.at(-1)?.id;
-  const voice = useSpeechOutput(true);
+  const voice = useSpeechOutput(neuralTtsAvailable);
 
   useEffect(() => {
     if (attentionKey) attentionTarget.current?.focus({ preventScroll: true });
@@ -88,7 +90,7 @@ export function OutcomePanel({
           onClick={voice.toggle}
           aria-pressed={voice.enabled}
           aria-label={voice.enabled ? 'Mute Jarvis voice' : 'Enable Jarvis voice'}
-          title={voice.enabled ? 'Jarvis voice on' : 'Jarvis voice muted'}
+          title={voice.enabled ? `Jarvis voice on${neuralTtsAvailable ? ' · neural' : ' · browser fallback'}` : 'Jarvis voice muted'}
         >
           {voice.enabled ? <Volume2 size={17} aria-hidden="true" /> : <VolumeX size={17} aria-hidden="true" />}
         </button>
