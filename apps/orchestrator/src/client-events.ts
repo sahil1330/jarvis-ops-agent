@@ -27,6 +27,7 @@ export type ClientEvent =
   | { type: 'trace'; id: string; category: 'harness' | 'connector' | 'sandbox' | 'subagent' | 'tool'; title: string; detail?: string; state: 'active' | 'done' | 'waiting' | 'error' }
   | { type: 'system'; system: OperationalSystem; state: 'ready' | 'active' | 'error'; detail: string }
   | { type: 'notice'; id: string; severity: 'error' | 'warning'; title: string; message: string; system?: OperationalSystem }
+  | { type: 'narration'; id: string; content: string }
   | { type: 'delta'; content: string }
   | { type: 'approval'; calls: ApprovalCall[] }
   | { type: 'metrics'; totalTokens?: number; totalCostUsd?: number }
@@ -77,6 +78,20 @@ function presentationFor(name: string): ToolPresentation {
     completed: `${titleFromToolName(name)} completed`,
     failed: `${titleFromToolName(name)} failed`,
   };
+}
+
+function narrationForToolCalls(calls: NonNullable<TrueForgeApi.ModelMessageEvent['toolCalls']>): string | undefined {
+  const names = new Set(calls.map((call) => call.toolInfo.name));
+  const checkingCalendar = names.has('list_calendar_events');
+  const checkingGmail = names.has('search_emails');
+
+  if (checkingCalendar && checkingGmail) return "I'll check your calendar and inbox in parallel.";
+  if (checkingCalendar) return "I'll check your calendar now.";
+  if (checkingGmail) return "I'll check your inbox now.";
+  if (names.has('recall_memories')) return 'Let me check what I remember about that.';
+
+  // External writes are deliberately not narrated here. They may still be awaiting approval.
+  return undefined;
 }
 
 function parseJson(value: string): unknown {
@@ -140,6 +155,7 @@ function toolErrorMessage(content: string): string | null {
 
 export class SessionEventState {
   private readonly events: EventIndex = new Map();
+  private rootSpokeSinceLastToolResponse = false;
 
   constructor(private readonly maxEvents = DEFAULT_MAX_EVENTS) {}
 
@@ -173,6 +189,7 @@ export class SessionEventState {
 
     switch (event.type) {
       case 'turn.created':
+        this.rootSpokeSinceLastToolResponse = false;
         return [
           { type: 'status', status: 'running' },
           {
@@ -195,8 +212,17 @@ export class SessionEventState {
           state: 'done' as const,
         }));
 
-      case 'model.message':
-        return (event.toolCalls ?? []).flatMap((call) => {
+      case 'model.message': {
+        if (event.threadId === 'main' && typeof event.content === 'string' && event.content.trim()) {
+          this.rootSpokeSinceLastToolResponse = true;
+        }
+
+        const calls = event.toolCalls ?? [];
+        const narration = !this.rootSpokeSinceLastToolResponse && calls.length > 0
+          ? narrationForToolCalls(calls)
+          : undefined;
+
+        const toolEvents = calls.flatMap((call) => {
           const presentation = presentationFor(call.toolInfo.name);
           return [
             {
@@ -219,6 +245,14 @@ export class SessionEventState {
               : []),
           ];
         });
+
+        return [
+          ...(narration
+            ? [{ type: 'narration' as const, id: `tool-narration:${event.id}`, content: narration }]
+            : []),
+          ...toolEvents,
+        ];
+      }
 
       case 'thread.created':
         return [
@@ -279,6 +313,7 @@ export class SessionEventState {
         ];
 
       case 'tool.response': {
+        this.rootSpokeSinceLastToolResponse = false;
         const call = this.findToolCall(event.toolCallId);
         const presentation = presentationFor(call?.name ?? 'tool_call');
         const errorMessage = toolErrorMessage(event.content);
@@ -373,7 +408,11 @@ export class SessionEventState {
       }
 
       case 'model.message.delta':
-        return event.threadId === 'main' && event.content ? [{ type: 'delta', content: event.content }] : [];
+        if (event.threadId === 'main' && event.content) {
+          this.rootSpokeSinceLastToolResponse = true;
+          return [{ type: 'delta', content: event.content }];
+        }
+        return [];
 
       case 'turn.done': {
         if (event.state.status === 'error') return [{ type: 'error', message: event.state.message }];
