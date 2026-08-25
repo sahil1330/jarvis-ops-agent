@@ -11,6 +11,15 @@ describe('voice activity detection', () => {
     expect(result.shouldStop).toBe(false);
   });
 
+  it('confirms steady speech across real animation-frame sampling', () => {
+    let state = createVoiceActivityState();
+    for (let now = 0; now <= 128; now += 16) {
+      state = updateVoiceActivity(state, 0.05, now).state;
+    }
+    expect(state.speechStarted).toBe(true);
+    expect(state.noiseFloor).toBeLessThan(0.02);
+  });
+
   it('confirms speech and stops after sustained silence', () => {
     let state = createVoiceActivityState();
     state = updateVoiceActivity(state, 0.05, 0).state;
