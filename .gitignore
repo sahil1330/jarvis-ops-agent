@@ -5,6 +5,7 @@ dist/
 *.log
 .DS_Store
 .trueforge/
+.jarvis/
 coverage/
 .vite/
 playwright-report/
