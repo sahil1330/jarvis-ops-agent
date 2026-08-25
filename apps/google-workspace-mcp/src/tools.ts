@@ -27,6 +27,8 @@ type CalendarEvent = {
 
 type CalendarEventList = { items?: CalendarEvent[] };
 
+const GMAIL_USER = 'me';
+
 function textResult(value: unknown) {
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],
@@ -59,13 +61,13 @@ export function registerGoogleWorkspaceTools(server: McpServer): void {
 
       const params = new URLSearchParams({ q: query, maxResults: String(maxResults) });
       const list = await googleRequest<GmailMessageList>(
-        `https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(env.GOOGLE_USER_EMAIL)}/messages?${params}`,
+        `https://gmail.googleapis.com/gmail/v1/users/${GMAIL_USER}/messages?${params}`,
       );
 
       const messages = await Promise.all(
         (list.messages ?? []).map(({ id }) =>
           googleRequest<GmailMessage>(
-            `https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(env.GOOGLE_USER_EMAIL)}/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
+            `https://gmail.googleapis.com/gmail/v1/users/${GMAIL_USER}/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
           ),
         ),
       );
@@ -153,7 +155,7 @@ export function registerGoogleWorkspaceTools(server: McpServer): void {
       ];
 
       const result = await googleRequest<{ id: string; threadId: string }>(
-        `https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(env.GOOGLE_USER_EMAIL)}/messages/send`,
+        `https://gmail.googleapis.com/gmail/v1/users/${GMAIL_USER}/messages/send`,
         { method: 'POST', body: JSON.stringify({ raw: toBase64Url(lines.join('\r\n')) }) },
       );
       return textResult({ sent: true, messageId: result.id, threadId: result.threadId });
