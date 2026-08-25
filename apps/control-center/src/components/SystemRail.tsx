@@ -35,6 +35,10 @@ export function SystemRail({ health, systems }: Props) {
     latency.firstVoiceMs !== undefined ||
     latency.totalTurnMs !== undefined
   );
+  const slowestTool = latency.tools.reduce<(typeof latency.tools)[number] | undefined>(
+    (slowest, current) => !slowest || current.durationMs > slowest.durationMs ? current : slowest,
+    undefined,
+  );
 
   return (
     <aside className="system-rail" aria-label="Connected systems">
@@ -58,6 +62,7 @@ export function SystemRail({ health, systems }: Props) {
             <span>TEXT</span><strong>{formatLatency(latency.firstAgentMs)}</strong>
             <span>VOICE</span><strong>{formatLatency(latency.firstVoiceMs)}</strong>
             <span>TOTAL</span><strong>{formatLatency(latency.totalTurnMs)}</strong>
+            {slowestTool && <><span>SLOW</span><strong title={slowestTool.label}>{formatLatency(slowestTool.durationMs)} · {slowestTool.label}</strong></>}
           </>
         )}
       </div>
