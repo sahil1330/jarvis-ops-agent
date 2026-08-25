@@ -1,4 +1,6 @@
 import { Box, CalendarDays, Mail, Radio, ShieldCheck } from 'lucide-react';
+import { useLatencyTelemetry } from '../hooks/useLatencyTelemetry';
+import { formatLatency } from '../lib/latency';
 import type { Health, SystemState, SystemStatus, SystemStatuses } from '../types';
 
 type Props = {
@@ -26,6 +28,14 @@ function StateIndicator({ status }: { status: SystemStatus }) {
 }
 
 export function SystemRail({ health, systems }: Props) {
+  const latency = useLatencyTelemetry();
+  const hasLatency = (
+    latency.sttMs !== undefined ||
+    latency.firstAgentMs !== undefined ||
+    latency.firstVoiceMs !== undefined ||
+    latency.totalTurnMs !== undefined
+  );
+
   return (
     <aside className="system-rail" aria-label="Connected systems">
       <div className="rail-heading"><Radio size={14} /> SYSTEMS</div>
@@ -42,6 +52,14 @@ export function SystemRail({ health, systems }: Props) {
       <div className="rail-meta">
         <span>MODE</span><strong>{health ? (health.mode === 'demo' ? 'DEMO DATA' : 'LIVE ACCOUNT') : 'UNKNOWN'}</strong>
         <span>AGENT</span><strong>{health?.agent ?? (systems.harness.state === 'checking' ? 'checking…' : 'unavailable')}</strong>
+        {hasLatency && (
+          <>
+            <span>STT</span><strong>{formatLatency(latency.sttMs)}</strong>
+            <span>TEXT</span><strong>{formatLatency(latency.firstAgentMs)}</strong>
+            <span>VOICE</span><strong>{formatLatency(latency.firstVoiceMs)}</strong>
+            <span>TOTAL</span><strong>{formatLatency(latency.totalTurnMs)}</strong>
+          </>
+        )}
       </div>
     </aside>
   );
