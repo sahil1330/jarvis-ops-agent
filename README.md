@@ -56,6 +56,7 @@ scripts/
   setup-trueforge.ts    Idempotent connector and agent registration
 docs/
   architecture.md       Trust boundaries and execution flow
+  design.md             Interface rationale and accessibility evidence
   demo-script.md        Three-minute judging walkthrough
   submission.md         Short hackathon write-up
 ```
@@ -141,6 +142,19 @@ npm run build
 ```
 
 The test suite covers approval-call reconstruction, root/subagent stream isolation, mail-header injection protection, URL-safe message encoding and the user approval interaction.
+
+Automated UI checks also run `axe-core` against the command center and human-approval checkpoint. See [the interface design evidence](docs/design.md) for the interaction model, responsive behavior, accessibility decisions and known limitations.
+
+## Qodo Code Review Evidence
+
+Every substantive feature was reviewed before merge, and each finding was answered in its original thread:
+
+- [PR #1 — authenticated Google Workspace MCP and final integration](https://github.com/sahil1330/jarvis-ops-agent/pull/1)
+- [PR #2 — TrueForge streaming runtime and session safety](https://github.com/sahil1330/jarvis-ops-agent/pull/2)
+- [PR #3 — voice control center and approval interface](https://github.com/sahil1330/jarvis-ops-agent/pull/3)
+- [PR #4 — Best UI accessibility and design evidence](https://github.com/sahil1330/jarvis-ops-agent/pull/4)
+
+Qodo surfaced 11 valid findings across the original stack, including an unauthenticated write-capable MCP endpoint, unbounded session and response state, concurrent stream hazards, stale UI events and misleading health states. We fixed every finding, added regression coverage, replied with the relevant commit evidence and requested follow-up reviews; the final reviewed heads reported **0 bugs**, with no findings dismissed.
 
 ## Safety model
 

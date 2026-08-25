@@ -1,4 +1,6 @@
 export type SystemState = 'offline' | 'ready' | 'active' | 'waiting';
+export type AgentPhase = 'idle' | 'running' | 'paused' | 'done' | 'error';
+export type HealthPhase = 'loading' | 'ready' | 'error';
 
 export type TraceItem = {
   id: string;

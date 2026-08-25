@@ -6,10 +6,7 @@ import { CommandComposer } from './components/CommandComposer';
 import { ExecutionTrace } from './components/ExecutionTrace';
 import { SystemRail } from './components/SystemRail';
 import { createSession, getHealth, resolveApproval, runTurn } from './lib/api';
-import type { ApprovalCall, Health, StreamEvent, TraceItem } from './types';
-
-type Phase = 'idle' | 'running' | 'paused' | 'done' | 'error';
-type HealthPhase = 'loading' | 'ready' | 'error';
+import type { AgentPhase, ApprovalCall, Health, HealthPhase, StreamEvent, TraceItem } from './types';
 const MAX_RESPONSE_CHARACTERS = 100_000;
 
 function isAbortError(reason: unknown): boolean {
@@ -19,7 +16,7 @@ function isAbortError(reason: unknown): boolean {
 export default function App() {
   const [command, setCommand] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [phase, setPhase] = useState<Phase>('idle');
+  const [phase, setPhase] = useState<AgentPhase>('idle');
   const [trace, setTrace] = useState<TraceItem[]>([]);
   const [response, setResponse] = useState('');
   const [approvals, setApprovals] = useState<ApprovalCall[]>([]);
@@ -171,23 +168,32 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">Skip to command center</a>
       <header className="topbar">
         <BrandMark />
-        <div className={`status-pill phase-${phase}`}><Activity size={14} /><span>{statusLabel}</span></div>
+        <div
+          className={`status-pill phase-${phase} health-${healthPhase}`}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <Activity size={14} aria-hidden="true" />
+          <span>{statusLabel}</span>
+        </div>
         <button type="button" className="new-session" onClick={reset}><RotateCcw size={14} /> New session</button>
       </header>
 
-      <main>
+      <main id="main-content" tabIndex={-1}>
         <div className="workspace">
           <CommandComposer command={command} onChange={setCommand} onSubmit={execute} disabled={phase === 'running'} />
-          <ExecutionTrace items={trace} />
+          <ExecutionTrace items={trace} phase={phase} />
           <SystemRail health={health} healthPhase={healthPhase} phase={phase} />
         </div>
 
         {(response || approvals.length > 0 || error) && (
           <div className="result-dock">
             {response && (
-              <section className="agent-response" aria-live="polite">
+              <section className="agent-response" aria-live="polite" aria-busy={phase === 'running'}>
                 <div className="response-label"><i /> JARVIS</div>
                 <p>{response}</p>
                 {(metrics.totalTokens !== undefined || metrics.totalCostUsd !== undefined) && (

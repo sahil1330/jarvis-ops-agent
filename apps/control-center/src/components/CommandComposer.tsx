@@ -21,10 +21,18 @@ export function CommandComposer({ command, disabled, onChange, onSubmit }: Props
     <section className="command-panel" aria-labelledby="command-title">
       <div className="eyebrow"><ShieldCheck size={14} /> Approval-gated agent</div>
       <h1 id="command-title">What should I handle?</h1>
-      <p className="lead">One command. Jarvis investigates, plans and pauses before anything leaves your account.</p>
+      <p className="lead" id="command-description">One command. Jarvis investigates, plans and pauses before anything leaves your account.</p>
 
-      <div className={`composer ${speech.listening ? 'is-listening' : ''}`}>
+      <form
+        className={`composer ${speech.listening ? 'is-listening' : ''}`}
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit();
+        }}
+      >
+        <label className="sr-only" htmlFor="jarvis-command">Command for Jarvis</label>
         <textarea
+          id="jarvis-command"
           value={command}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) => {
@@ -33,7 +41,8 @@ export function CommandComposer({ command, disabled, onChange, onSubmit }: Props
           placeholder="Tell Jarvis what changed…"
           rows={4}
           disabled={disabled}
-          aria-label="Command for Jarvis"
+          aria-describedby="command-description command-shortcut"
+          aria-keyshortcuts="Control+Enter Meta+Enter"
         />
         <div className="composer-actions">
           <button
@@ -46,22 +55,23 @@ export function CommandComposer({ command, disabled, onChange, onSubmit }: Props
           >
             {speech.listening ? <MicOff size={18} /> : <Mic size={18} />}
           </button>
-          <span>{speech.listening ? 'Listening…' : '⌘ Enter to run'}</span>
+          <span id="command-shortcut" role="status" aria-live="polite">
+            {speech.listening ? 'Listening…' : 'Ctrl/⌘ Enter to run'}
+          </span>
           <button
-            type="button"
+            type="submit"
             className="run-button"
-            onClick={onSubmit}
             disabled={disabled || command.trim().length < 2}
           >
             Run command <ArrowUp size={16} />
           </button>
         </div>
-      </div>
+      </form>
 
       <div className="suggestions" aria-label="Suggested commands">
         {suggestions.map((suggestion, index) => (
           <button type="button" key={suggestion} onClick={() => onChange(suggestion)} disabled={disabled}>
-            <span>0{index + 1}</span>{suggestion}
+            <span aria-hidden="true">0{index + 1}</span>{suggestion}
           </button>
         ))}
       </div>
