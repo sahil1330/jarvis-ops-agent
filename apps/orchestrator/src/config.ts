@@ -18,6 +18,8 @@ export const env = z
     OPENAI_STT_MODEL: z.string().default('gpt-4o-mini-transcribe'),
     OPENAI_TTS_MODEL: z.string().default('gpt-4o-mini-tts'),
     OPENAI_TTS_VOICE: z.string().default('cedar'),
+    OPENAI_REALTIME_MODEL: z.string().default('gpt-realtime-1.5'),
+    OPENAI_REALTIME_VOICE: z.string().default('marin'),
     JARVIS_DEMO_MODE: z
       .string()
       .optional()
