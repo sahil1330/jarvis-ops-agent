@@ -51,5 +51,5 @@ export type Health = {
   harness: { connected: boolean; version?: string };
   agent: string;
   mode: 'demo' | 'live';
-  audio?: { stt: boolean; tts: boolean };
+  audio?: { stt: boolean; tts: boolean; realtime?: boolean };
 };

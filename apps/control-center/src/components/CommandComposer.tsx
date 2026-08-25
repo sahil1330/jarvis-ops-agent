@@ -29,13 +29,17 @@ export function CommandComposer({ command, disabled, onChange, onSubmit }: Props
   }, []);
 
   const speechStatus = speech.listening
-    ? 'Listening… tap again when finished'
+    ? speech.autoStopsOnSilence
+      ? 'Listening… I’ll stop when you pause'
+      : 'Listening… tap again when finished'
     : speech.transcribing
       ? 'Transcribing with neural STT…'
       : speech.error
         ? speech.error
         : speech.mode === 'neural'
-          ? 'Neural voice input ready'
+          ? speech.autoStopsOnSilence
+            ? 'Neural voice input ready · auto-stop on silence'
+            : 'Neural voice input ready'
           : 'Ctrl/⌘ Enter to run';
 
   return (
@@ -72,7 +76,13 @@ export function CommandComposer({ command, disabled, onChange, onSubmit }: Props
             onClick={speech.toggle}
             disabled={!speech.supported || disabled || speech.transcribing}
             aria-label={speech.listening ? 'Stop listening and transcribe' : 'Use voice input'}
-            title={speech.mode === 'neural' ? 'Neural voice input' : speech.supported ? 'Browser voice input fallback' : 'Voice input is not supported in this browser'}
+            title={speech.mode === 'neural'
+              ? speech.autoStopsOnSilence
+                ? 'Neural voice input · stops automatically after you pause'
+                : 'Neural voice input'
+              : speech.supported
+                ? 'Browser voice input fallback'
+                : 'Voice input is not supported in this browser'}
           >
             {speech.listening ? <MicOff size={18} /> : <Mic size={18} />}
           </button>

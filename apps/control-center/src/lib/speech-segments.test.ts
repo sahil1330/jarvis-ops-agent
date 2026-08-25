@@ -22,14 +22,19 @@ describe('consumeSpeechSegments', () => {
   });
 
   it('does not wait forever for punctuation in a long response', () => {
-    const text = `${'This is a streamed assistant response '.repeat(8)}and it keeps going`;
+    const text = `${'This is a streamed assistant response '.repeat(12)}and it keeps going`;
     const result = consumeSpeechSegments('', text);
     expect(result.segments.length).toBeGreaterThan(0);
-    expect(result.segments[0].length).toBeLessThanOrEqual(220);
+    expect(result.segments[0].length).toBeLessThanOrEqual(320);
   });
 
   it('removes common markdown noise before speech', () => {
     const result = consumeSpeechSegments('', '**Done.** [Open calendar](https://example.com).');
     expect(result.segments).toEqual(['Done.', 'Open calendar.']);
+  });
+
+  it('keeps colons and semicolons inside the same natural sentence', () => {
+    const result = consumeSpeechSegments('', 'I found two things: one meeting conflict; one urgent email.');
+    expect(result.segments).toEqual(['I found two things: one meeting conflict; one urgent email.']);
   });
 });

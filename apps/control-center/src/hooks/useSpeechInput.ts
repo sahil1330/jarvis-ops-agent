@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { transcribeAudio } from '../lib/api';
+import { calculateRms, createVoiceActivityState, updateVoiceActivity } from '../lib/voice-activity';
 
 type SpeechRecognitionEventLike = {
   results: ArrayLike<{ 0: { transcript: string } }>;
@@ -25,6 +26,8 @@ declare global {
   }
 }
 
+const MAX_RECORDING_MS = 45_000;
+
 function preferredMimeType(): string {
   const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
   return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) ?? '';
@@ -39,24 +42,50 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const abortRef = useRef<AbortController | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const mediaSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const vadFrameRef = useRef<number | null>(null);
+  const maxRecordingTimerRef = useRef<number | null>(null);
 
   const browserSupported = Boolean(window.SpeechRecognition ?? window.webkitSpeechRecognition);
   const neuralSupported = neuralAvailable && typeof MediaRecorder !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia);
   const supported = neuralSupported || browserSupported;
 
+  const cleanupVad = useCallback(() => {
+    if (vadFrameRef.current !== null) {
+      window.cancelAnimationFrame(vadFrameRef.current);
+      vadFrameRef.current = null;
+    }
+    if (maxRecordingTimerRef.current !== null) {
+      window.clearTimeout(maxRecordingTimerRef.current);
+      maxRecordingTimerRef.current = null;
+    }
+    mediaSourceRef.current?.disconnect();
+    analyserRef.current?.disconnect();
+    mediaSourceRef.current = null;
+    analyserRef.current = null;
+    const context = audioContextRef.current;
+    audioContextRef.current = null;
+    if (context && context.state !== 'closed') void context.close();
+  }, []);
+
   const cleanupMedia = useCallback(() => {
+    cleanupVad();
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     recorderRef.current = null;
     setListening(false);
-  }, []);
+  }, [cleanupVad]);
 
   useEffect(() => () => {
     recognitionRef.current?.stop();
-    recorderRef.current?.stop();
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
     abortRef.current?.abort();
+    cleanupVad();
     streamRef.current?.getTracks().forEach((track) => track.stop());
-  }, []);
+  }, [cleanupVad]);
 
   const startBrowserRecognition = useCallback(() => {
     const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
@@ -80,10 +109,50 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
     recognition.start();
   }, [onTranscript]);
 
+  const startVoiceEndpointing = useCallback(async (stream: MediaStream, recorder: MediaRecorder) => {
+    if (typeof AudioContext === 'undefined') return;
+    const context = new AudioContext();
+    audioContextRef.current = context;
+    if (context.state === 'suspended') await context.resume();
+
+    const source = context.createMediaStreamSource(stream);
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.12;
+    source.connect(analyser);
+    mediaSourceRef.current = source;
+    analyserRef.current = analyser;
+
+    const samples = new Float32Array(analyser.fftSize);
+    let vadState = createVoiceActivityState();
+    const sample = (now: number) => {
+      if (recorderRef.current !== recorder || recorder.state !== 'recording') return;
+      analyser.getFloatTimeDomainData(samples);
+      const next = updateVoiceActivity(vadState, calculateRms(samples), now);
+      vadState = next.state;
+      if (next.shouldStop) {
+        recorder.stop();
+        return;
+      }
+      vadFrameRef.current = window.requestAnimationFrame(sample);
+    };
+    vadFrameRef.current = window.requestAnimationFrame(sample);
+
+    maxRecordingTimerRef.current = window.setTimeout(() => {
+      if (recorderRef.current === recorder && recorder.state === 'recording') recorder.stop();
+    }, MAX_RECORDING_MS);
+  }, []);
+
   const startNeuralRecording = useCallback(async () => {
     try {
       setError('');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
       const mimeType = preferredMimeType();
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       streamRef.current = stream;
@@ -115,17 +184,20 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
           });
       };
       setListening(true);
-      recorder.start();
+      recorder.start(250);
+      void startVoiceEndpointing(stream, recorder).catch(() => {
+        // Recording still works with manual stop if Web Audio endpointing is unavailable.
+      });
     } catch {
       cleanupMedia();
       if (browserSupported) startBrowserRecognition();
       else setError('Microphone access was not available.');
     }
-  }, [browserSupported, cleanupMedia, onTranscript, startBrowserRecognition]);
+  }, [browserSupported, cleanupMedia, onTranscript, startBrowserRecognition, startVoiceEndpointing]);
 
   const toggle = useCallback(() => {
     if (recorderRef.current && listening) {
-      recorderRef.current.stop();
+      if (recorderRef.current.state === 'recording') recorderRef.current.stop();
       return;
     }
     if (recognitionRef.current && listening) {
@@ -143,6 +215,7 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
     supported,
     error,
     mode: neuralSupported ? 'neural' as const : browserSupported ? 'browser' as const : 'none' as const,
+    autoStopsOnSilence: neuralSupported && typeof AudioContext !== 'undefined',
     toggle,
   };
 }

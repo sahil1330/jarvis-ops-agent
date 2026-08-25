@@ -12,6 +12,7 @@ vi.mock('../hooks/useSpeechOutput', () => ({
   useSpeechOutput: () => ({
     enabled: true,
     speaking: false,
+    mode: 'realtime',
     enqueue,
     speakNow,
     stop,
@@ -37,6 +38,7 @@ describe('OutcomePanel streaming voice', () => {
         approvals={[]}
         error=""
         metrics={{}}
+        realtimeVoiceAvailable
         neuralTtsAvailable
         onDecision={vi.fn()}
       />,
@@ -57,6 +59,7 @@ describe('OutcomePanel streaming voice', () => {
         approvals={[]}
         error=""
         metrics={{}}
+        realtimeVoiceAvailable
         neuralTtsAvailable
         onDecision={vi.fn()}
       />,
@@ -74,6 +77,7 @@ describe('OutcomePanel streaming voice', () => {
         approvals={[]}
         error=""
         metrics={{}}
+        realtimeVoiceAvailable
         neuralTtsAvailable
         onDecision={vi.fn()}
       />,

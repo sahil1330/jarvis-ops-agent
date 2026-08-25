@@ -3,6 +3,7 @@ import express from 'express';
 import { z } from 'zod';
 import { AudioServiceUnavailableError, neuralAudioCapabilities, synthesizeSpeech, transcribeAudio } from './audio.js';
 import { env } from './config.js';
+import { createRealtimeVoiceCall, realtimeVoiceAvailable } from './realtime-voice.js';
 import {
   createSession,
   resolveApprovals,
@@ -38,7 +39,7 @@ app.get('/api/health', async (_request, response) => {
     harness,
     agent: env.JARVIS_AGENT_NAME,
     mode: env.JARVIS_DEMO_MODE ? 'demo' : 'live',
-    audio: neuralAudioCapabilities(),
+    audio: { ...neuralAudioCapabilities(), realtime: realtimeVoiceAvailable() },
   });
 });
 
@@ -67,6 +68,22 @@ app.post('/api/audio/speech', async (request, response, next) => {
     next(error);
   }
 });
+
+app.post(
+  '/api/audio/realtime/session',
+  express.text({ type: 'application/sdp', limit: '64kb' }),
+  async (request, response, next) => {
+    try {
+      if (typeof request.body !== 'string' || !request.body.trim()) throw new z.ZodError([]);
+      const answerSdp = await createRealtimeVoiceCall(request.body);
+      response.setHeader('content-type', 'application/sdp');
+      response.setHeader('cache-control', 'no-store');
+      response.send(answerSdp);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 app.post('/api/sessions', async (_request, response, next) => {
   try {

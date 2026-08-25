@@ -67,6 +67,17 @@ export async function createSpeech(text: string, signal?: AbortSignal): Promise<
   return response.blob();
 }
 
+export async function exchangeRealtimeVoiceSdp(sdp: string, signal?: AbortSignal): Promise<string> {
+  const response = await fetch('/api/audio/realtime/session', {
+    method: 'POST',
+    headers: { 'content-type': 'application/sdp' },
+    body: sdp,
+    signal,
+  });
+  if (!response.ok) throw new Error(await parseError(response));
+  return response.text();
+}
+
 export async function createSession(signal?: AbortSignal): Promise<string> {
   const response = await fetch('/api/sessions', { method: 'POST', signal });
   if (!response.ok) throw new Error(await parseError(response));

@@ -301,6 +301,7 @@ export default function App() {
               approvals={approvals}
               error={error}
               metrics={metrics}
+              realtimeVoiceAvailable={Boolean(health?.audio?.realtime)}
               neuralTtsAvailable={Boolean(health?.audio?.tts)}
               onDecision={decide}
             />

@@ -1,6 +1,6 @@
 # Jarvis // Personal Operations
 
-> A voice-enabled personal operations agent that investigates Gmail and Calendar, calculates a safe plan in an isolated sandbox, and pauses for human approval before sending or rescheduling anything.
+> A voice-enabled personal operations agent that investigates Gmail and Calendar, calculates a safe plan in an isolated sandbox, remembers explicit user preferences, speaks naturally while it works, and pauses for human approval before sending or rescheduling anything.
 
 Built for **The Agent Harness Hackathon 2026** on [TrueForge](https://github.com/truefoundry/trueforge).
 
@@ -10,22 +10,28 @@ Built for **The Agent Harness Hackathon 2026** on [TrueForge](https://github.com
 
 Jarvis turns that one instruction into observable work:
 
-1. TrueForge opens a persistent session.
-2. Inbox and calendar subagents investigate in parallel.
-3. Real Gmail and Google Calendar data arrives through our MCP server.
-4. Code Mode uses a Daytona sandbox to normalize time zones and calculate conflicts.
-5. Jarvis prepares the exact email and calendar mutation.
-6. TrueForge pauses on `tool.approval_required`.
-7. The control center shows the arguments and lets the user allow or deny them.
-8. Only an approved call reaches Google; the session retains the audit trail.
+1. Voice input records until Jarvis detects that the user has stopped speaking, then neural STT produces the command.
+2. TrueForge opens a persistent session and recalls relevant explicit memories when useful.
+3. Inbox and calendar subagents investigate in parallel.
+4. Real Gmail and Google Calendar data arrives through our MCP server.
+5. Code Mode uses a Daytona sandbox to normalize time zones and calculate conflicts.
+6. Natural-language TrueForge output is spoken through a persistent OpenAI Realtime WebRTC voice channel while tools continue running.
+7. Jarvis prepares the exact email and calendar mutation.
+8. TrueForge pauses on `tool.approval_required`.
+9. The control center shows the arguments and lets the user allow or deny them.
+10. Only an approved call reaches Google; the session retains the audit trail.
 
 ```mermaid
 flowchart TD
   A["Voice or text command"] --> B["Jarvis control center"]
+  A --> VAD["Mic VAD + neural STT"]
+  VAD --> B
   B --> C["TrueForge session"]
   C --> D["Google Workspace MCP"]
   C --> E["Daytona sandbox"]
   D --> F["Gmail and Calendar"]
+  D --> M["Persistent explicit memory"]
+  C --> V["Realtime voice renderer"]
   C --> G{"Human approval"}
   G -->|Allow| D
   G -->|Deny| H["Stop safely"]
@@ -45,13 +51,35 @@ This project uses TrueForge for the execution loop rather than wrapping a model 
 
 The custom UI consumes TrueForge’s TypeScript SDK through a small server-side streaming bridge. Approval decisions are returned as `user.tool_approval` events; the UI cannot bypass the harness gate.
 
+The Realtime model is intentionally **not** a second agent. It receives no Google tools, memory tools or decision authority. It is a voice-rendering channel for natural-language text already produced by TrueForge. If Realtime is unavailable, Jarvis falls back to the neural TTS endpoint and finally browser speech synthesis.
+
+## Voice interaction
+
+Jarvis uses three progressively degraded voice layers:
+
+- **Preferred output:** a persistent WebRTC connection using `gpt-realtime-1.5` with the `marin` voice for lower-latency, more conversational speech.
+- **Output fallback:** `gpt-4o-mini-tts`, then browser speech synthesis.
+- **Input:** browser recording with adaptive client-side voice activity detection, followed by `gpt-4o-mini-transcribe`. After actual speech begins, roughly 900 ms of sustained silence ends the recording automatically. The mic button remains a manual stop fallback.
+
+Voice output follows TrueForge response text as it streams. Raw tool arguments, execution trace diagnostics and sandbox output are never narrated.
+
+## Persistent memory
+
+Jarvis exposes bounded MCP memory tools for explicit user preferences and facts:
+
+- `recall_memories`
+- `remember_fact`
+- `forget_memory`
+
+Ordinary conversation is not silently persisted. Local memory defaults to `.jarvis/memory.json`, which is excluded from version control.
+
 ## Repository layout
 
 ```text
 apps/
-  control-center/       React + Vite command and approval interface
-  orchestrator/         TrueForge SDK streaming bridge
-  google-workspace-mcp/ Remote MCP server for Gmail and Calendar
+  control-center/       React + Vite command, voice and approval interface
+  orchestrator/         TrueForge SDK streaming + server-side audio bridge
+  google-workspace-mcp/ Gmail, Calendar and persistent-memory MCP server
 scripts/
   setup-trueforge.ts    Idempotent connector and agent registration
 docs/
@@ -65,6 +93,7 @@ docs/
 
 - Node.js 22.14 or newer
 - A model API key supported by TrueForge
+- An OpenAI API key for neural STT and Realtime/TTS voice
 - A [Daytona](https://www.daytona.io/) API key for sandbox execution
 - A Google Cloud project with Gmail API and Google Calendar API enabled
 - Google OAuth credentials and a refresh token for an account you own
@@ -79,7 +108,7 @@ https://www.googleapis.com/auth/gmail.send
 https://www.googleapis.com/auth/calendar.events
 ```
 
-Keep the OAuth app in testing while developing, add your Google account as a test user, and store the refresh token only in `.env`. Never put credentials or personal inbox/calendar data in the repository or demo recording.
+Keep the OAuth app in testing while developing, add your Google account as a test user, and store the refresh token only in `.env`. Never put credentials or personal inbox/calendar data in the repository or demo recording. For a normal personal OAuth token, keep `GOOGLE_USER_EMAIL=me`; a literal different mailbox can trigger delegated-mailbox authorization errors.
 
 ## Local setup
 
@@ -90,7 +119,7 @@ cp .env.example .env
 npm install
 ```
 
-Fill in the Google OAuth variables in `.env`, then start the Google MCP service:
+Fill in the OpenAI and Google OAuth variables in `.env`, then start the Google MCP service.
 
 Generate a dedicated bearer token for the private TrueForge-to-MCP connection and place it in `JARVIS_MCP_BEARER_TOKEN`:
 
@@ -141,7 +170,7 @@ npm run check
 npm run build
 ```
 
-The test suite covers approval-call reconstruction, MCP error propagation, root/subagent stream isolation, mail-header injection protection, URL-safe message encoding, visible Gmail failure feedback and the user approval interaction.
+The test suite covers approval-call reconstruction, MCP error propagation, root/subagent stream isolation, mail-header injection protection, URL-safe message encoding, visible Gmail failure feedback, streamed speech segmentation, voice-activity endpointing, persistent memory and the user approval interaction.
 
 Automated UI checks also run `axe-core` against the command center and human-approval checkpoint. See [the interface design evidence](docs/design.md) for the interaction model, responsive behavior, accessibility decisions and known limitations.
 
@@ -154,6 +183,8 @@ Every substantive feature was reviewed before merge, and each finding was answer
 - [PR #3 — voice control center and approval interface](https://github.com/sahil1330/jarvis-ops-agent/pull/3)
 - [PR #4 — Best UI accessibility and design evidence](https://github.com/sahil1330/jarvis-ops-agent/pull/4)
 - [PR #7 — visible tool failures and in-viewport live outcomes](https://github.com/sahil1330/jarvis-ops-agent/pull/7)
+- [PR #8 — neural voice and persistent user memory](https://github.com/sahil1330/jarvis-ops-agent/pull/8)
+- [PR #9 — speech during the live agent/tool loop](https://github.com/sahil1330/jarvis-ops-agent/pull/9)
 
 Qodo surfaced 11 valid findings across the original stack, including an unauthenticated write-capable MCP endpoint, unbounded session and response state, concurrent stream hazards, stale UI events and misleading health states. We fixed every finding, added regression coverage, replied with the relevant commit evidence and requested follow-up reviews; the final reviewed heads reported **0 bugs**, with no findings dismissed.
 
@@ -164,6 +195,8 @@ Qodo surfaced 11 valid findings across the original stack, including an unauthen
 - Every MCP request requires a constant-time-checked bearer credential held by TrueForge.
 - The MCP service binds to `127.0.0.1` unless an explicit deployment host is configured.
 - The Google refresh token remains in the MCP process, never in the model or sandbox.
+- The OpenAI API key remains in the orchestrator; the browser receives only the WebRTC session answer, never the key.
+- The Realtime voice channel has no MCP servers or TrueForge authority.
 - The sandbox receives no Google or model credentials.
 - Email headers are sanitized before constructing RFC 2822 messages.
 - Calendar moves reject invalid time ranges.
