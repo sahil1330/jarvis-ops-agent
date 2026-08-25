@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 const WORD_DELAY_MS = 185;
 const SENTENCE_DELAY_MS = 105;
+const OVERLAP_ANCHOR_CHARACTERS = 256;
 
 function nextWordEnd(text: string, start: number, streamActive: boolean): number | null {
   if (start >= text.length) return null;
@@ -14,6 +15,21 @@ function nextWordEnd(text: string, start: number, streamActive: boolean): number
   if (streamActive && !hasCompleteWord) return null;
   while (end < text.length && /\s/.test(text[end] ?? '')) end += 1;
   return end;
+}
+
+function rollingPrefixDrop(previous: string, next: string): number | null {
+  if (!previous || !next) return null;
+  const anchorLength = Math.min(OVERLAP_ANCHOR_CHARACTERS, previous.length, next.length);
+  if (anchorLength === 0) return null;
+  const anchor = next.slice(0, anchorLength);
+
+  let candidate = previous.lastIndexOf(anchor);
+  while (candidate > 0) {
+    const retained = previous.slice(candidate);
+    if (next.startsWith(retained)) return candidate;
+    candidate = previous.lastIndexOf(anchor, candidate - 1);
+  }
+  return null;
 }
 
 export function useConversationalReveal(text: string, streamActive: boolean): string {
@@ -36,8 +52,15 @@ export function useConversationalReveal(text: string, streamActive: boolean): st
     streamActiveRef.current = streamActive;
 
     if (!text.startsWith(previous.slice(0, visibleLengthRef.current))) {
-      visibleLengthRef.current = 0;
-      setVisibleLength(0);
+      const dropped = rollingPrefixDrop(previous, text);
+      if (dropped !== null) {
+        const adjusted = Math.min(text.length, Math.max(0, visibleLengthRef.current - dropped));
+        visibleLengthRef.current = adjusted;
+        setVisibleLength(adjusted);
+      } else {
+        visibleLengthRef.current = 0;
+        setVisibleLength(0);
+      }
     }
 
     if (reducedMotionRef.current) {
