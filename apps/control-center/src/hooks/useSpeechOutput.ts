@@ -31,6 +31,13 @@ function normalizeSpeechText(rawText: string): string {
   return rawText.trim().replace(/\s+/g, ' ').slice(0, 4_096);
 }
 
+function realtimeConnectionIsUsable(connection: RealtimeConnection): boolean {
+  return (
+    connection.channel.readyState === 'open' &&
+    !['closed', 'failed', 'disconnected'].includes(connection.peer.connectionState)
+  );
+}
+
 export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = false) {
   const [enabled, setEnabled] = useState(true);
   const [speaking, setSpeaking] = useState(false);
@@ -166,7 +173,8 @@ export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = fal
 
   const ensureRealtimeConnection = useCallback(async (): Promise<RealtimeConnection> => {
     const current = realtimeConnectionRef.current;
-    if (current && current.channel.readyState === 'open' && current.peer.connectionState !== 'closed') return current;
+    if (current && realtimeConnectionIsUsable(current)) return current;
+    if (current) closeRealtime('Refreshing Realtime voice connection');
     if (realtimeConnectingRef.current) return realtimeConnectingRef.current;
     if (typeof RTCPeerConnection === 'undefined') throw new Error('WebRTC is not supported in this browser');
 
@@ -175,7 +183,6 @@ export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = fal
       peer.addTransceiver('audio', { direction: 'recvonly' });
       const audio = document.createElement('audio');
       audio.autoplay = true;
-      audio.playsInline = true;
       const channel = peer.createDataChannel('oai-events');
 
       peer.ontrack = (event) => {
@@ -241,6 +248,11 @@ export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = fal
       const connection = { peer, channel, audio };
       realtimeConnectionRef.current = connection;
       realtimeConnectingRef.current = null;
+      peer.addEventListener('connectionstatechange', () => {
+        if (['failed', 'closed'].includes(peer.connectionState) && realtimeConnectionRef.current === connection) {
+          closeRealtime('Realtime voice connection ended');
+        }
+      });
       return connection;
     })().catch((error) => {
       realtimeConnectingRef.current = null;
