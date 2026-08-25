@@ -41,4 +41,24 @@ describe('MemoryStore', () => {
     expect(await store.forget('profile.timezone')).toBe(true);
     expect(await store.recall('timezone')).toEqual([]);
   });
+
+  it('serializes concurrent writes from separate store instances that share one file', async () => {
+    const { store, filePath } = await createStore();
+    const second = new MemoryStore(filePath);
+    const third = new MemoryStore(filePath);
+
+    await Promise.all([
+      store.remember('preference.one', 'one', 'preference'),
+      second.remember('preference.two', 'two', 'preference'),
+      third.remember('profile.three', 'three', 'profile'),
+    ]);
+
+    const restarted = new MemoryStore(filePath);
+    const memories = await restarted.recall('', 20);
+    expect(memories.map((memory) => memory.key).sort()).toEqual([
+      'preference.one',
+      'preference.two',
+      'profile.three',
+    ]);
+  });
 });
