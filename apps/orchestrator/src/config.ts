@@ -14,6 +14,10 @@ export const env = z
     TRUEFORGE_BASE_URL: z.url().default('http://localhost:8790'),
     TRUEFORGE_TOKEN: optionalString,
     JARVIS_AGENT_NAME: z.string().default('jarvis-personal-ops'),
+    OPENAI_API_KEY: optionalString,
+    OPENAI_STT_MODEL: z.string().default('gpt-4o-mini-transcribe'),
+    OPENAI_TTS_MODEL: z.string().default('gpt-4o-mini-tts'),
+    OPENAI_TTS_VOICE: z.string().default('cedar'),
     JARVIS_DEMO_MODE: z
       .string()
       .optional()
