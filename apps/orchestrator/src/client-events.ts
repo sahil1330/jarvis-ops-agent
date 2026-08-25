@@ -22,6 +22,8 @@ type ToolCallDetails = {
   name: string;
 };
 
+type NarrationKey = 'gmail' | 'calendar' | 'memory';
+
 export type ClientEvent =
   | { type: 'status'; status: 'connected' | 'running' | 'paused' | 'done' | 'cancelled' }
   | { type: 'trace'; id: string; category: 'harness' | 'connector' | 'sandbox' | 'subagent' | 'tool'; title: string; detail?: string; state: 'active' | 'done' | 'waiting' | 'error' }
@@ -36,6 +38,7 @@ export type ClientEvent =
 type EventIndex = Map<string, TrueForgeApi.TurnStreamingEvent>;
 const DEFAULT_MAX_EVENTS = 256;
 const MAX_ERROR_DETAIL_CHARACTERS = 600;
+const MAX_PREAMBLE_CHARACTERS = 600;
 
 const TOOL_PRESENTATIONS: Record<string, ToolPresentation> = {
   search_emails: {
@@ -80,6 +83,13 @@ function presentationFor(name: string): ToolPresentation {
   };
 }
 
+function narrationKeyForToolName(name: string): NarrationKey | undefined {
+  if (name === 'list_calendar_events') return 'calendar';
+  if (name === 'search_emails') return 'gmail';
+  if (name === 'recall_memories') return 'memory';
+  return undefined;
+}
+
 function narrationForToolCalls(calls: NonNullable<TrueForgeApi.ModelMessageEvent['toolCalls']>): string | undefined {
   const names = new Set(calls.map((call) => call.toolInfo.name));
   const checkingCalendar = names.has('list_calendar_events');
@@ -92,6 +102,18 @@ function narrationForToolCalls(calls: NonNullable<TrueForgeApi.ModelMessageEvent
 
   // External writes are deliberately not narrated here. They may still be awaiting approval.
   return undefined;
+}
+
+function preambleCoverage(text: string): Set<NarrationKey> {
+  const normalized = text.toLowerCase();
+  const soundsLikeNextAction = /\b(?:i['’]?ll|i will|let me|i['’]?m going to|i am going to|i['’]?m checking|i am checking|i['’]?m looking|i am looking|check|checking|look|looking|search|searching|review|reviewing)\b/.test(normalized);
+  if (!soundsLikeNextAction) return new Set();
+
+  const covered = new Set<NarrationKey>();
+  if (/\b(?:calendar|schedule|meeting|meetings|event|events)\b/.test(normalized)) covered.add('calendar');
+  if (/\b(?:gmail|inbox|email|emails|mail|message|messages)\b/.test(normalized)) covered.add('gmail');
+  if (/\b(?:remember|memory|memories|preference|preferences)\b/.test(normalized)) covered.add('memory');
+  return covered;
 }
 
 function parseJson(value: string): unknown {
@@ -155,7 +177,8 @@ function toolErrorMessage(content: string): string | null {
 
 export class SessionEventState {
   private readonly events: EventIndex = new Map();
-  private rootSpokeSinceLastToolResponse = false;
+  private rootPreambleText = '';
+  private readonly rootPreambleCoverage = new Set<NarrationKey>();
 
   constructor(private readonly maxEvents = DEFAULT_MAX_EVENTS) {}
 
@@ -166,6 +189,25 @@ export class SessionEventState {
       if (!oldest) break;
       this.events.delete(oldest);
     }
+  }
+
+  private rememberRootPreamble(content: string): void {
+    this.rootPreambleText = `${this.rootPreambleText}${content}`.slice(-MAX_PREAMBLE_CHARACTERS);
+    const coverage = preambleCoverage(this.rootPreambleText);
+    for (const key of coverage) this.rootPreambleCoverage.add(key);
+  }
+
+  private uncoveredNarrationCalls(
+    calls: NonNullable<TrueForgeApi.ModelMessageEvent['toolCalls']>,
+  ): NonNullable<TrueForgeApi.ModelMessageEvent['toolCalls']> {
+    const uncovered = calls.filter((call) => {
+      const key = narrationKeyForToolName(call.toolInfo.name);
+      if (!key || !this.rootPreambleCoverage.has(key)) return true;
+      this.rootPreambleCoverage.delete(key);
+      return false;
+    });
+    if (this.rootPreambleCoverage.size === 0) this.rootPreambleText = '';
+    return uncovered;
   }
 
   private findToolCall(toolCallId: string): ToolCallDetails | null {
@@ -189,7 +231,8 @@ export class SessionEventState {
 
     switch (event.type) {
       case 'turn.created':
-        this.rootSpokeSinceLastToolResponse = false;
+        this.rootPreambleText = '';
+        this.rootPreambleCoverage.clear();
         return [
           { type: 'status', status: 'running' },
           {
@@ -214,13 +257,12 @@ export class SessionEventState {
 
       case 'model.message': {
         if (event.threadId === 'main' && typeof event.content === 'string' && event.content.trim()) {
-          this.rootSpokeSinceLastToolResponse = true;
+          this.rememberRootPreamble(event.content);
         }
 
         const calls = event.toolCalls ?? [];
-        const narration = !this.rootSpokeSinceLastToolResponse && calls.length > 0
-          ? narrationForToolCalls(calls)
-          : undefined;
+        const narrationCalls = this.uncoveredNarrationCalls(calls);
+        const narration = narrationCalls.length > 0 ? narrationForToolCalls(narrationCalls) : undefined;
 
         const toolEvents = calls.flatMap((call) => {
           const presentation = presentationFor(call.toolInfo.name);
@@ -313,7 +355,6 @@ export class SessionEventState {
         ];
 
       case 'tool.response': {
-        this.rootSpokeSinceLastToolResponse = false;
         const call = this.findToolCall(event.toolCallId);
         const presentation = presentationFor(call?.name ?? 'tool_call');
         const errorMessage = toolErrorMessage(event.content);
@@ -409,7 +450,7 @@ export class SessionEventState {
 
       case 'model.message.delta':
         if (event.threadId === 'main' && event.content) {
-          this.rootSpokeSinceLastToolResponse = true;
+          this.rememberRootPreamble(event.content);
           return [{ type: 'delta', content: event.content }];
         }
         return [];
