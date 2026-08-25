@@ -250,7 +250,6 @@ export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = fal
 
     const setupGeneration = realtimeSetupGenerationRef.current;
     let provisionalConnection: RealtimeConnection | null = null;
-    let connectionPromise: Promise<RealtimeConnection>;
 
     const assertSetupCurrent = () => {
       if (setupGeneration !== realtimeSetupGenerationRef.current || !enabledRef.current) {
@@ -258,7 +257,7 @@ export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = fal
       }
     };
 
-    connectionPromise = (async () => {
+    const connectionPromise = (async () => {
       const peer = new RTCPeerConnection();
       peer.addTransceiver('audio', { direction: 'recvonly' });
       const audio = document.createElement('audio');
@@ -379,9 +378,6 @@ export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = fal
       });
       assertSetupCurrent();
 
-      if (realtimeConnectingRef.current !== connectionPromise) {
-        throw new DOMException('Realtime voice setup was superseded', 'AbortError');
-      }
       realtimeConnectionRef.current = connection;
       realtimeConnectingRef.current = null;
       peer.addEventListener('connectionstatechange', () => {
@@ -391,7 +387,7 @@ export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = fal
       });
       return connection;
     })().catch((error) => {
-      if (realtimeConnectingRef.current === connectionPromise) realtimeConnectingRef.current = null;
+      if (setupGeneration === realtimeSetupGenerationRef.current) realtimeConnectingRef.current = null;
       if (provisionalConnection && realtimeConnectionRef.current !== provisionalConnection) {
         disposeRealtimeConnection(provisionalConnection);
       }
