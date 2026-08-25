@@ -1,4 +1,4 @@
-import { Bot, Box, Check, CircleDashed, PlugZap, Shield, Wrench } from 'lucide-react';
+import { AlertCircle, Bot, Box, Check, CircleDashed, PlugZap, Shield, Wrench } from 'lucide-react';
 import type { AgentPhase, TraceItem } from '../types';
 
 const icons = {
@@ -21,6 +21,7 @@ const stateLabels: Record<TraceItem['state'], string> = {
   active: 'In progress',
   done: 'Completed',
   waiting: 'Waiting',
+  error: 'Failed',
 };
 
 export function ExecutionTrace({ items, phase }: { items: TraceItem[]; phase: AgentPhase }) {
@@ -57,6 +58,8 @@ export function ExecutionTrace({ items, phase }: { items: TraceItem[]; phase: Ag
                   <span className="sr-only">{stateLabels[item.state]}</span>
                   {item.state === 'done'
                     ? <Check size={14} aria-hidden="true" />
+                    : item.state === 'error'
+                      ? <AlertCircle size={15} aria-hidden="true" />
                     : <span className="trace-pulse" aria-hidden="true" />}
                 </div>
               </article>

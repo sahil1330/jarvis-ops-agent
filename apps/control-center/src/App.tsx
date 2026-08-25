@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Activity, RotateCcw } from 'lucide-react';
-import { ApprovalCard } from './components/ApprovalCard';
 import { BrandMark } from './components/BrandMark';
 import { CommandComposer } from './components/CommandComposer';
 import { ExecutionTrace } from './components/ExecutionTrace';
+import { OutcomePanel } from './components/OutcomePanel';
 import { SystemRail } from './components/SystemRail';
 import { createSession, getHealth, resolveApproval, runTurn } from './lib/api';
-import type { AgentPhase, ApprovalCall, Health, HealthPhase, StreamEvent, TraceItem } from './types';
+import type { AgentPhase, ApprovalCall, Health, HealthPhase, OperationNotice, StreamEvent, SystemStatuses, TraceItem } from './types';
 const MAX_RESPONSE_CHARACTERS = 100_000;
+
+const INITIAL_SYSTEMS: SystemStatuses = {
+  harness: { state: 'unknown', detail: 'Checking TrueForge' },
+  gmail: { state: 'unknown', detail: 'Not checked this session' },
+  calendar: { state: 'unknown', detail: 'Not checked this session' },
+  sandbox: { state: 'unknown', detail: 'Not used this session' },
+};
 
 function isAbortError(reason: unknown): boolean {
   return reason instanceof DOMException && reason.name === 'AbortError';
@@ -19,13 +26,28 @@ export default function App() {
   const [phase, setPhase] = useState<AgentPhase>('idle');
   const [trace, setTrace] = useState<TraceItem[]>([]);
   const [response, setResponse] = useState('');
+  const [notices, setNotices] = useState<OperationNotice[]>([]);
   const [approvals, setApprovals] = useState<ApprovalCall[]>([]);
   const [health, setHealth] = useState<Health | null>(null);
   const [healthPhase, setHealthPhase] = useState<HealthPhase>('loading');
   const [error, setError] = useState('');
   const [metrics, setMetrics] = useState<{ totalTokens?: number; totalCostUsd?: number }>({});
+  const [systems, setSystems] = useState<SystemStatuses>(INITIAL_SYSTEMS);
   const activeStream = useRef<AbortController | null>(null);
   const streamGeneration = useRef(0);
+  const outcomePanel = useRef<HTMLElement | null>(null);
+  const outcomeRevealed = useRef(false);
+
+  const revealOutcome = useCallback((focusAlert = false) => {
+    if (outcomeRevealed.current && !focusAlert) return;
+    outcomeRevealed.current = true;
+    window.setTimeout(() => {
+      const panel = outcomePanel.current;
+      if (!panel) return;
+      const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+      panel.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'nearest' });
+    }, 0);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -33,11 +55,18 @@ export default function App() {
       .then((result) => {
         setHealth(result);
         setHealthPhase('ready');
+        setSystems((current) => ({
+          ...current,
+          harness: result.harness.connected
+            ? { state: 'ready', detail: 'TrueForge connected' }
+            : { state: 'offline', detail: 'TrueForge is not reachable' },
+        }));
       })
       .catch((reason: unknown) => {
         if (isAbortError(reason)) return;
         setHealthPhase('error');
         setError(reason instanceof Error ? reason.message : 'Unable to reach orchestrator');
+        setSystems((current) => ({ ...current, harness: { state: 'offline', detail: 'Orchestrator health check failed' } }));
       });
     return () => controller.abort();
   }, []);
@@ -46,23 +75,64 @@ export default function App() {
 
   const handleEvent = useCallback((event: StreamEvent) => {
     if (event.type === 'status') {
-      if (event.status === 'running') setPhase('running');
-      if (event.status === 'paused') setPhase('paused');
-      if (event.status === 'done') setPhase('done');
-      if (event.status === 'cancelled') setPhase('idle');
+      if (event.status === 'running') {
+        setPhase('running');
+        setTrace((current) => current.map((item) => item.state === 'waiting' ? { ...item, state: 'done' } : item));
+        setSystems((current) => ({ ...current, harness: { state: 'active', detail: 'TrueForge is running the turn' } }));
+      }
+      if (event.status === 'paused') {
+        setPhase('paused');
+        setSystems((current) => ({ ...current, harness: { state: 'active', detail: 'Waiting for your approval' } }));
+      }
+      if (event.status === 'done') {
+        setPhase('done');
+        setSystems((current) => ({ ...current, harness: { state: 'ready', detail: 'Turn completed' } }));
+      }
+      if (event.status === 'cancelled') {
+        setPhase('idle');
+        setSystems((current) => ({ ...current, harness: { state: 'ready', detail: 'Turn cancelled' } }));
+      }
       return;
     }
     if (event.type === 'trace') {
-      setTrace((current) => [...current, { ...event, timestamp: Date.now() }].slice(-24));
+      setTrace((current) => {
+        const nextItem = { ...event, timestamp: Date.now() };
+        const existingIndex = current.findIndex((item) => item.id === event.id);
+        if (existingIndex === -1) return [...current, nextItem].slice(-24);
+        const next = [...current];
+        next[existingIndex] = nextItem;
+        return next.slice(-24);
+      });
+      if (event.state === 'error') revealOutcome(true);
+      return;
+    }
+    if (event.type === 'system') {
+      setSystems((current) => ({
+        ...current,
+        [event.system]: { state: event.state, detail: event.detail },
+      }));
+      if (event.state === 'ready') {
+        setNotices((current) => current.filter((notice) => notice.system !== event.system));
+      }
+      return;
+    }
+    if (event.type === 'notice') {
+      setNotices((current) => {
+        const withoutPrevious = current.filter((notice) => notice.id !== event.id);
+        return [...withoutPrevious, event].slice(-4);
+      });
+      revealOutcome(event.severity === 'error');
       return;
     }
     if (event.type === 'delta') {
       setResponse((current) => `${current}${event.content}`.slice(-MAX_RESPONSE_CHARACTERS));
+      revealOutcome();
       return;
     }
     if (event.type === 'approval') {
       setApprovals(event.calls);
       setPhase('paused');
+      revealOutcome();
       return;
     }
     if (event.type === 'metrics') {
@@ -75,8 +145,9 @@ export default function App() {
     if (event.type === 'error') {
       setError(event.message);
       setPhase('error');
+      revealOutcome(true);
     }
-  }, []);
+  }, [revealOutcome]);
 
   const beginStream = useCallback(() => {
     activeStream.current?.abort();
@@ -95,10 +166,13 @@ export default function App() {
     if (phase === 'running' || command.trim().length < 2) return;
     setError('');
     setResponse('');
+    setNotices([]);
     setApprovals([]);
     setTrace([]);
     setMetrics({});
     setPhase('running');
+    outcomeRevealed.current = false;
+    revealOutcome();
     const stream = beginStream();
 
     try {
@@ -110,10 +184,11 @@ export default function App() {
       if (isAbortError(reason)) return;
       setError(reason instanceof Error ? reason.message : 'The command failed.');
       setPhase('error');
+      revealOutcome(true);
     } finally {
       if (activeStream.current === stream.controller) activeStream.current = null;
     }
-  }, [beginStream, command, phase, sessionId]);
+  }, [beginStream, command, phase, revealOutcome, sessionId]);
 
   const decide = useCallback(async (status: 'allow' | 'deny') => {
     if (!sessionId || approvals.length === 0) return;
@@ -137,10 +212,11 @@ export default function App() {
       if (isAbortError(reason)) return;
       setError(reason instanceof Error ? reason.message : 'Could not resume the agent.');
       setPhase('error');
+      revealOutcome(true);
     } finally {
       if (activeStream.current === stream.controller) activeStream.current = null;
     }
-  }, [approvals, beginStream, sessionId]);
+  }, [approvals, beginStream, revealOutcome, sessionId]);
 
   const reset = useCallback(() => {
     activeStream.current?.abort();
@@ -150,15 +226,28 @@ export default function App() {
     setPhase('idle');
     setTrace([]);
     setResponse('');
+    setNotices([]);
     setApprovals([]);
     setError('');
     setMetrics({});
-  }, []);
+    outcomeRevealed.current = false;
+    setSystems({
+      ...INITIAL_SYSTEMS,
+      harness: health?.harness.connected
+        ? { state: 'ready', detail: 'TrueForge connected' }
+        : healthPhase === 'loading'
+          ? INITIAL_SYSTEMS.harness
+          : { state: 'offline', detail: 'TrueForge is not reachable' },
+    });
+  }, [health, healthPhase]);
 
+  const hasToolIssues = notices.some((notice) => notice.severity === 'error');
   const statusLabel = (() => {
     if (healthPhase === 'loading') return 'Checking harness…';
     if (healthPhase === 'error') return 'Harness unavailable';
     if (!health?.harness.connected) return 'Harness offline';
+    if (hasToolIssues && phase === 'running') return 'Tool issue — agent continuing';
+    if (hasToolIssues && phase === 'done') return 'Completed with issues';
     if (phase === 'running') return 'Agent working';
     if (phase === 'paused') return 'Awaiting approval';
     if (phase === 'done') return 'Task complete';
@@ -172,7 +261,7 @@ export default function App() {
       <header className="topbar">
         <BrandMark />
         <div
-          className={`status-pill phase-${phase} health-${healthPhase}`}
+          className={`status-pill phase-${phase} health-${healthPhase}${hasToolIssues ? ' has-issues' : ''}`}
           role="status"
           aria-live="polite"
           aria-atomic="true"
@@ -186,25 +275,21 @@ export default function App() {
       <main id="main-content" tabIndex={-1}>
         <div className="workspace">
           <CommandComposer command={command} onChange={setCommand} onSubmit={execute} disabled={phase === 'running'} />
-          <ExecutionTrace items={trace} phase={phase} />
-          <SystemRail health={health} healthPhase={healthPhase} phase={phase} />
-        </div>
-
-        {(response || approvals.length > 0 || error) && (
-          <div className="result-dock">
-            {response && (
-              <section className="agent-response" aria-live="polite" aria-busy={phase === 'running'}>
-                <div className="response-label"><i /> JARVIS</div>
-                <p>{response}</p>
-                {(metrics.totalTokens !== undefined || metrics.totalCostUsd !== undefined) && (
-                  <small>{metrics.totalTokens?.toLocaleString() ?? '—'} tokens · ${metrics.totalCostUsd?.toFixed(4) ?? '—'}</small>
-                )}
-              </section>
-            )}
-            {approvals.length > 0 && <ApprovalCard calls={approvals} busy={phase === 'running'} onDecision={decide} />}
-            {error && <div className="error-banner" role="alert"><strong>Jarvis could not continue.</strong><span>{error}</span></div>}
+          <div className="operations-column">
+            <OutcomePanel
+              panelRef={outcomePanel}
+              phase={phase}
+              response={response}
+              notices={notices}
+              approvals={approvals}
+              error={error}
+              metrics={metrics}
+              onDecision={decide}
+            />
+            <ExecutionTrace items={trace} phase={phase} />
           </div>
-        )}
+          <SystemRail health={health} systems={systems} />
+        </div>
       </main>
       <footer><span>TRUEFORGE HARNESS</span><span>TOOLS VIA MCP</span><span>CODE IN SANDBOX</span><span>HUMAN IN CONTROL</span></footer>
     </div>
