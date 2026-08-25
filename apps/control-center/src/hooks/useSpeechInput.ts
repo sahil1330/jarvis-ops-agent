@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { transcribeAudio } from '../lib/api';
+import { recordSttLatency } from '../lib/latency';
 import { calculateRms, createVoiceActivityState, updateVoiceActivity } from '../lib/voice-activity';
 
 type SpeechRecognitionEventLike = {
@@ -206,8 +207,12 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
         const controller = new AbortController();
         abortRef.current = controller;
         setTranscribing(true);
+        const sttStartedAt = performance.now();
         void transcribeAudio(audio, controller.signal)
-          .then((text) => onTranscript(text))
+          .then((text) => {
+            recordSttLatency(performance.now() - sttStartedAt);
+            onTranscript(text);
+          })
           .catch((reason: unknown) => {
             if (reason instanceof DOMException && reason.name === 'AbortError') return;
             setError('Neural transcription failed. Browser speech or typing is still available.');
@@ -220,8 +225,6 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
       setListening(true);
       recorder.start(250);
 
-      // The hard cap protects every neural recording, even if Web Audio/VAD is
-      // unavailable or initialization fails.
       maxRecordingTimerRef.current = window.setTimeout(() => {
         if (recorderRef.current === recorder && recorder.state === 'recording') recorder.stop();
       }, MAX_RECORDING_MS);
