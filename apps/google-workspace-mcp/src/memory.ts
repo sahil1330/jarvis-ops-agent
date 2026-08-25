@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
@@ -12,6 +13,8 @@ export type MemoryRecord = {
 
 type MemoryFile = { version: 1; memories: MemoryRecord[] };
 
+const pathQueues = new Map<string, Promise<unknown>>();
+
 function normalizedTerms(value: string): string[] {
   return value
     .toLowerCase()
@@ -21,8 +24,6 @@ function normalizedTerms(value: string): string[] {
 }
 
 export class MemoryStore {
-  private queue: Promise<unknown> = Promise.resolve();
-
   constructor(private readonly filePath: string) {}
 
   private async read(): Promise<MemoryFile> {
@@ -45,14 +46,19 @@ export class MemoryStore {
 
   private async write(file: MemoryFile): Promise<void> {
     await mkdir(dirname(this.filePath), { recursive: true });
-    const tempPath = `${this.filePath}.${process.pid}.tmp`;
+    const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
     await writeFile(tempPath, `${JSON.stringify(file, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
     await rename(tempPath, this.filePath);
   }
 
   private serialized<T>(operation: () => Promise<T>): Promise<T> {
-    const next = this.queue.then(operation, operation);
-    this.queue = next.then(() => undefined, () => undefined);
+    const previous = pathQueues.get(this.filePath) ?? Promise.resolve();
+    const next = previous.then(operation, operation);
+    const settled = next.then(() => undefined, () => undefined);
+    pathQueues.set(this.filePath, settled);
+    void settled.finally(() => {
+      if (pathQueues.get(this.filePath) === settled) pathQueues.delete(this.filePath);
+    });
     return next;
   }
 
