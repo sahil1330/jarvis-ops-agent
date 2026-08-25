@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { AlertTriangle, CheckCircle2, LoaderCircle, MessageSquareText, Volume2, VolumeX } from 'lucide-react';
 import { useConversationalReveal } from '../hooks/useConversationalReveal';
 import { useSpeechOutput } from '../hooks/useSpeechOutput';
+import { markFirstVoiceStart } from '../lib/latency';
 import { consumeSpeechSegments } from '../lib/speech-segments';
 import type { AgentPhase, ApprovalCall, OperationNotice, ProgressNarration } from '../types';
 import { ApprovalCard } from './ApprovalCard';
@@ -91,12 +92,22 @@ export function OutcomePanel({
   const revealedResponse = useConversationalReveal(response, phase === 'running');
   const latestNarration = narrations.at(-1);
 
+  const enqueueSpeech = useCallback((content: string) => {
+    markFirstVoiceStart();
+    voice.enqueue(content);
+  }, [voice.enqueue]);
+
+  const speakNow = useCallback((content: string) => {
+    markFirstVoiceStart();
+    voice.speakNow(content);
+  }, [voice.speakNow]);
+
   const flushPendingSpeech = useCallback(() => {
     const flushed = consumeSpeechSegments(pendingSpeech.current, '', true);
     pendingSpeech.current = flushed.rest;
-    for (const segment of flushed.segments) voice.enqueue(segment);
+    for (const segment of flushed.segments) enqueueSpeech(segment);
     return flushed.segments.length;
-  }, [voice.enqueue]);
+  }, [enqueueSpeech]);
 
   useEffect(() => {
     if (attentionKey) attentionTarget.current?.focus({ preventScroll: true });
@@ -115,17 +126,17 @@ export function OutcomePanel({
 
     const next = consumeSpeechSegments(pendingSpeech.current, incoming);
     pendingSpeech.current = next.rest;
-    for (const segment of next.segments) voice.enqueue(segment);
-  }, [response, voice.enqueue, voice.stop]);
+    for (const segment of next.segments) enqueueSpeech(segment);
+  }, [enqueueSpeech, response, voice.stop]);
 
   useEffect(() => {
     for (const narration of narrations) {
       if (spokenNarrationIds.current.has(narration.id)) continue;
       spokenNarrationIds.current.add(narration.id);
-      if (narration.interrupt) voice.speakNow(narration.content);
-      else voice.enqueue(narration.content);
+      if (narration.interrupt) speakNow(narration.content);
+      else enqueueSpeech(narration.content);
     }
-  }, [narrations, voice.enqueue, voice.speakNow]);
+  }, [enqueueSpeech, narrations, speakNow]);
 
   useEffect(() => {
     if (phase !== 'running' || pendingSpeech.current.trim().length < MIN_IDLE_FLUSH_CHARACTERS) return;
@@ -145,16 +156,16 @@ export function OutcomePanel({
     if (phase === 'paused' || phase === 'done') {
       const flushedCount = flushPendingSpeech();
       if (phase === 'paused' && approvals.length > 0 && response.trim().length === 0 && flushedCount === 0) {
-        voice.enqueue(approvalSummary(approvals));
+        enqueueSpeech(approvalSummary(approvals));
       }
       return;
     }
 
     if (phase === 'error' && error) {
       pendingSpeech.current = '';
-      voice.speakNow(`I need your attention. ${error}`);
+      speakNow(`I need your attention. ${error}`);
     }
-  }, [approvals, error, flushPendingSpeech, phase, response, voice.enqueue, voice.speakNow, voice.stop]);
+  }, [approvals, enqueueSpeech, error, flushPendingSpeech, phase, response, speakNow, voice.stop]);
 
   const voiceLabel = voice.mode === 'realtime'
     ? 'Realtime natural voice'
