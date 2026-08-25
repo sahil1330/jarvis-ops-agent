@@ -44,6 +44,29 @@ export async function getHealth(signal?: AbortSignal): Promise<Health> {
   return (await response.json()) as Health;
 }
 
+export async function transcribeAudio(audio: Blob, signal?: AbortSignal): Promise<string> {
+  const response = await fetch('/api/audio/transcriptions', {
+    method: 'POST',
+    headers: { 'content-type': audio.type || 'audio/webm' },
+    body: audio,
+    signal,
+  });
+  if (!response.ok) throw new Error(await parseError(response));
+  const payload = (await response.json()) as { text: string };
+  return payload.text;
+}
+
+export async function createSpeech(text: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch('/api/audio/speech', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text }),
+    signal,
+  });
+  if (!response.ok) throw new Error(await parseError(response));
+  return response.blob();
+}
+
 export async function createSession(signal?: AbortSignal): Promise<string> {
   const response = await fetch('/api/sessions', { method: 'POST', signal });
   if (!response.ok) throw new Error(await parseError(response));

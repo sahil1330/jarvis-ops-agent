@@ -4,13 +4,15 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { bearerTokenMatches } from './auth.js';
 import { env, requireMcpBearerToken } from './config.js';
 import { registerGoogleWorkspaceTools } from './tools.js';
+import { registerMemoryTools } from './memory-tools.js';
 
 function createServer(): McpServer {
   const server = new McpServer({
     name: 'jarvis-google-workspace',
-    version: '0.1.0',
+    version: '0.2.0',
   });
   registerGoogleWorkspaceTools(server);
+  registerMemoryTools(server);
   return server;
 }
 
@@ -22,6 +24,7 @@ app.get('/healthz', (_request, response) => {
     status: 'ok',
     service: 'jarvis-google-workspace-mcp',
     mode: env.JARVIS_DEMO_MODE ? 'demo' : 'live',
+    memory: 'persistent',
   });
 });
 
