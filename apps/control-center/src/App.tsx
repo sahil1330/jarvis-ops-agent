@@ -122,9 +122,15 @@ export default function App() {
           notice.id !== event.id && (!event.system || notice.system !== event.system)
         ));
         const next = [...withoutPrevious, event];
-        const systemNotices = next.filter((notice) => notice.system !== undefined);
-        const unscopedNotices = next.filter((notice) => notice.system === undefined).slice(-4);
-        return [...systemNotices, ...unscopedNotices];
+        const keepUnscopedIds = new Set(
+          next
+            .filter((notice) => notice.system === undefined)
+            .slice(-4)
+            .map((notice) => notice.id),
+        );
+        return next.filter(
+          (notice) => notice.system !== undefined || keepUnscopedIds.has(notice.id),
+        );
       });
       revealOutcome(event.severity === 'error');
       return;

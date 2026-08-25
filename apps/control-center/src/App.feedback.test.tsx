@@ -59,15 +59,6 @@ describe('App live feedback', () => {
 
   it('does not evict a system failure when unrelated notices arrive', async () => {
     vi.mocked(runTurn).mockImplementation(async (_sessionId, _command, onEvent) => {
-      onEvent({
-        type: 'notice',
-        id: 'tool-error:search-1',
-        severity: 'error',
-        title: 'Gmail search failed',
-        message: 'Google API error: invalid_grant',
-        system: 'gmail',
-      });
-      onEvent({ type: 'system', system: 'gmail', state: 'error', detail: 'Google API error: invalid_grant' });
       for (let index = 0; index < 5; index += 1) {
         onEvent({
           type: 'notice',
@@ -77,6 +68,15 @@ describe('App live feedback', () => {
           message: 'Non-system diagnostic notice',
         });
       }
+      onEvent({
+        type: 'notice',
+        id: 'tool-error:search-1',
+        severity: 'error',
+        title: 'Gmail search failed',
+        message: 'Google API error: invalid_grant',
+        system: 'gmail',
+      });
+      onEvent({ type: 'system', system: 'gmail', state: 'error', detail: 'Google API error: invalid_grant' });
       onEvent({ type: 'status', status: 'done' });
     });
 
@@ -86,8 +86,12 @@ describe('App live feedback', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Run command' }));
 
-    expect(await screen.findByText('Gmail search failed')).toBeVisible();
+    const failureTitle = await screen.findByText('Gmail search failed');
+    expect(failureTitle).toBeVisible();
+    const failure = failureTitle.closest('[role="alert"]');
+    expect(failure).not.toBeNull();
     expect(screen.getAllByText('Completed with issues').length).toBeGreaterThan(0);
     expect(screen.getByText('Failed', { selector: '.system-status span' })).toBeVisible();
+    await waitFor(() => expect(document.activeElement).toBe(failure));
   });
 });
