@@ -1,5 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react';
-import { AlertTriangle, CheckCircle2, LoaderCircle, MessageSquareText } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, LoaderCircle, MessageSquareText, Volume2, VolumeX } from 'lucide-react';
+import { useSpeechOutput } from '../hooks/useSpeechOutput';
 import type { AgentPhase, ApprovalCall, OperationNotice } from '../types';
 import { ApprovalCard } from './ApprovalCard';
 
@@ -33,6 +34,11 @@ function OutcomeHeading({ phase, hasResponse, hasIssues }: { phase: AgentPhase; 
   return <>Your result will appear here</>;
 }
 
+function approvalSummary(calls: ApprovalCall[]): string {
+  const labels = calls.map((call) => call.toolName.includes('email') ? 'send an email' : call.toolName.includes('calendar') ? 'change your calendar' : call.toolName.replaceAll('_', ' '));
+  return `I need your approval before I ${labels.join(' and ')}. Please review the exact action on screen.`;
+}
+
 export function OutcomePanel({
   panelRef,
   phase,
@@ -47,10 +53,23 @@ export function OutcomePanel({
   const hasIssues = notices.some((notice) => notice.severity === 'error');
   const attentionTarget = useRef<HTMLDivElement | null>(null);
   const attentionKey = error ? `fatal:${error}` : notices.at(-1)?.id;
+  const voice = useSpeechOutput(true);
 
   useEffect(() => {
     if (attentionKey) attentionTarget.current?.focus({ preventScroll: true });
   }, [attentionKey]);
+
+  useEffect(() => {
+    if (phase === 'paused' && approvals.length > 0) {
+      void voice.speak(response || approvalSummary(approvals));
+      return;
+    }
+    if (phase === 'done' && response) {
+      void voice.speak(response);
+      return;
+    }
+    if (phase === 'error' && error) void voice.speak(`I need your attention. ${error}`);
+  }, [approvals, error, phase, response, voice.speak]);
 
   return (
     <section className={`outcome-panel phase-${phase}${hasIssues ? ' has-issues' : ''}`} aria-labelledby="outcome-title" ref={panelRef}>
@@ -63,6 +82,16 @@ export function OutcomePanel({
           {phase === 'running' ? <LoaderCircle size={13} aria-hidden="true" /> : <i aria-hidden="true" />}
           {hasIssues && phase === 'done' ? 'Issues found' : phaseLabels[phase]}
         </div>
+        <button
+          type="button"
+          className="icon-button"
+          onClick={voice.toggle}
+          aria-pressed={voice.enabled}
+          aria-label={voice.enabled ? 'Mute Jarvis voice' : 'Enable Jarvis voice'}
+          title={voice.enabled ? 'Jarvis voice on' : 'Jarvis voice muted'}
+        >
+          {voice.enabled ? <Volume2 size={17} aria-hidden="true" /> : <VolumeX size={17} aria-hidden="true" />}
+        </button>
       </div>
 
       <div className="outcome-body">
