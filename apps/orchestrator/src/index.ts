@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express from 'express';
 import { z } from 'zod';
+import { AudioServiceUnavailableError, neuralAudioCapabilities, synthesizeSpeech, transcribeAudio } from './audio.js';
 import { env } from './config.js';
 import {
   createSession,
@@ -16,6 +17,7 @@ app.use(cors({ origin: env.CONTROL_CENTER_ORIGIN }));
 app.use(express.json({ limit: '64kb' }));
 
 const commandSchema = z.object({ command: z.string().trim().min(2).max(4_000) });
+const speechSchema = z.object({ text: z.string().trim().min(1).max(4_096) });
 const approvalSchema = z.object({
   decisions: z
     .array(
@@ -36,7 +38,34 @@ app.get('/api/health', async (_request, response) => {
     harness,
     agent: env.JARVIS_AGENT_NAME,
     mode: env.JARVIS_DEMO_MODE ? 'demo' : 'live',
+    audio: neuralAudioCapabilities(),
   });
+});
+
+app.post(
+  '/api/audio/transcriptions',
+  express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '12mb' }),
+  async (request, response, next) => {
+    try {
+      if (!Buffer.isBuffer(request.body)) throw new z.ZodError([]);
+      const text = await transcribeAudio(request.body, request.headers['content-type'] ?? 'audio/webm');
+      response.json({ text });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post('/api/audio/speech', async (request, response, next) => {
+  try {
+    const { text } = speechSchema.parse(request.body);
+    const audio = await synthesizeSpeech(text);
+    response.setHeader('content-type', 'audio/mpeg');
+    response.setHeader('cache-control', 'no-store');
+    response.send(audio);
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.post('/api/sessions', async (_request, response, next) => {
@@ -75,9 +104,10 @@ app.post('/api/sessions/:sessionId/approvals', async (request, response, next) =
 });
 
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
-  const status = error instanceof z.ZodError ? 400 : error instanceof SessionBusyError ? 409 : 500;
+  const status =
+    error instanceof z.ZodError ? 400 : error instanceof SessionBusyError ? 409 : error instanceof AudioServiceUnavailableError ? 503 : 500;
   const message = error instanceof z.ZodError ? 'Invalid request payload' : error instanceof Error ? error.message : 'Unexpected server error';
-  if (status >= 500) console.error(error);
+  if (status >= 500 && !(error instanceof AudioServiceUnavailableError)) console.error(error);
   if (!response.headersSent) response.status(status).json({ error: message });
 });
 
