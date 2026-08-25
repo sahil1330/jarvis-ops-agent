@@ -17,6 +17,7 @@ export type LatencySnapshot = {
 type Listener = () => void;
 
 let snapshot: LatencySnapshot = { tools: [] };
+let pendingSttMs: number | undefined;
 let turnStartedAt: number | null = null;
 let approvalStartedAt: number | null = null;
 const toolStarts = new Map<string, { startedAt: number; label: string }>();
@@ -46,20 +47,21 @@ export function getLatencySnapshot(): LatencySnapshot {
 
 export function recordSttLatency(durationMs: number): void {
   if (!Number.isFinite(durationMs) || durationMs < 0) return;
-  update({ sttMs: Math.round(durationMs) });
+  pendingSttMs = Math.round(durationMs);
 }
 
 export function startTurnTelemetry(): void {
-  const previousStt = snapshot.sttMs;
+  const sttMs = pendingSttMs;
+  pendingSttMs = undefined;
   turnStartedAt = now();
   approvalStartedAt = null;
   toolStarts.clear();
-  publish({ ...(previousStt !== undefined ? { sttMs: previousStt } : {}), tools: [] });
+  publish({ ...(sttMs !== undefined ? { sttMs } : {}), tools: [] });
 }
 
 function markFirst(field: 'firstAgentMs' | 'firstToolMs' | 'firstVoiceMs'): void {
   if (turnStartedAt === null || snapshot[field] !== undefined) return;
-  update({ [field]: Math.round(now() - turnStartedAt) });
+  update({ [field]: Math.max(0, Math.round(now() - turnStartedAt)) });
 }
 
 export function markFirstAgentFeedback(): void {
@@ -112,6 +114,7 @@ export function finishTurnTelemetry(): void {
 }
 
 export function resetLatencyTelemetry(): void {
+  pendingSttMs = undefined;
   turnStartedAt = null;
   approvalStartedAt = null;
   toolStarts.clear();
