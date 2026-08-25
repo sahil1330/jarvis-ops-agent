@@ -122,9 +122,10 @@ export function OutcomePanel({
     for (const narration of narrations) {
       if (spokenNarrationIds.current.has(narration.id)) continue;
       spokenNarrationIds.current.add(narration.id);
-      voice.enqueue(narration.content);
+      if (narration.interrupt) voice.speakNow(narration.content);
+      else voice.enqueue(narration.content);
     }
-  }, [narrations, voice.enqueue]);
+  }, [narrations, voice.enqueue, voice.speakNow]);
 
   useEffect(() => {
     if (phase !== 'running' || pendingSpeech.current.trim().length < MIN_IDLE_FLUSH_CHARACTERS) return;
