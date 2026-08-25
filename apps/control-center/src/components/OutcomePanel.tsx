@@ -62,6 +62,10 @@ export function OutcomePanel({
   }, [attentionKey]);
 
   useEffect(() => {
+    if (phase === 'idle') {
+      voice.stop();
+      return;
+    }
     if (phase === 'paused' && approvals.length > 0) {
       void voice.speak(response || approvalSummary(approvals));
       return;
@@ -71,7 +75,7 @@ export function OutcomePanel({
       return;
     }
     if (phase === 'error' && error) void voice.speak(`I need your attention. ${error}`);
-  }, [approvals, error, phase, response, voice.speak]);
+  }, [approvals, error, phase, response, voice.speak, voice.stop]);
 
   return (
     <section className={`outcome-panel phase-${phase}${hasIssues ? ' has-issues' : ''}`} aria-labelledby="outcome-title" ref={panelRef}>
