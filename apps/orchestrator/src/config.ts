@@ -1,8 +1,12 @@
 import { config as loadEnv } from 'dotenv';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
-loadEnv({ path: resolve(process.cwd(), '../../.env'), quiet: true });
+const moduleDirectory = dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = resolve(moduleDirectory, '../../..');
+
+loadEnv({ path: resolve(repositoryRoot, '.env'), quiet: true });
 loadEnv({ quiet: true });
 
 const optionalString = z.string().optional().transform((value) => value || undefined);
