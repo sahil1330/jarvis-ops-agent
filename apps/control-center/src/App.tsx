@@ -6,7 +6,8 @@ import { ExecutionTrace } from './components/ExecutionTrace';
 import { OutcomePanel } from './components/OutcomePanel';
 import { SystemRail } from './components/SystemRail';
 import { createSession, getHealth, resolveApproval, runTurn } from './lib/api';
-import type { AgentPhase, ApprovalCall, Health, HealthPhase, OperationNotice, StreamEvent, SystemStatuses, TraceItem } from './types';
+import { approvalDecisionNarration } from './lib/progress-narration';
+import type { AgentPhase, ApprovalCall, Health, HealthPhase, OperationNotice, ProgressNarration, StreamEvent, SystemStatuses, TraceItem } from './types';
 const MAX_RESPONSE_CHARACTERS = 100_000;
 
 const INITIAL_SYSTEMS: SystemStatuses = {
@@ -26,6 +27,7 @@ export default function App() {
   const [phase, setPhase] = useState<AgentPhase>('idle');
   const [trace, setTrace] = useState<TraceItem[]>([]);
   const [response, setResponse] = useState('');
+  const [narrations, setNarrations] = useState<ProgressNarration[]>([]);
   const [notices, setNotices] = useState<OperationNotice[]>([]);
   const [approvals, setApprovals] = useState<ApprovalCall[]>([]);
   const [health, setHealth] = useState<Health | null>(null);
@@ -35,6 +37,7 @@ export default function App() {
   const [systems, setSystems] = useState<SystemStatuses>(INITIAL_SYSTEMS);
   const activeStream = useRef<AbortController | null>(null);
   const streamGeneration = useRef(0);
+  const localNarrationSequence = useRef(0);
   const outcomePanel = useRef<HTMLElement | null>(null);
   const outcomeRevealed = useRef(false);
 
@@ -48,6 +51,12 @@ export default function App() {
       panel.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'nearest' });
     }, 0);
   }, []);
+
+  const addLocalNarration = useCallback((content: string) => {
+    const id = `local-narration:${++localNarrationSequence.current}`;
+    setNarrations((current) => [...current, { id, content }].slice(-8));
+    revealOutcome();
+  }, [revealOutcome]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -135,6 +144,14 @@ export default function App() {
       revealOutcome(event.severity === 'error');
       return;
     }
+    if (event.type === 'narration') {
+      setNarrations((current) => {
+        if (current.some((item) => item.id === event.id)) return current;
+        return [...current, { id: event.id, content: event.content }].slice(-8);
+      });
+      revealOutcome();
+      return;
+    }
     if (event.type === 'delta') {
       setResponse((current) => `${current}${event.content}`.slice(-MAX_RESPONSE_CHARACTERS));
       revealOutcome();
@@ -177,13 +194,14 @@ export default function App() {
     if (phase === 'running' || command.trim().length < 2) return;
     setError('');
     setResponse('');
+    setNarrations([]);
     setNotices([]);
     setApprovals([]);
     setTrace([]);
     setMetrics({});
     setPhase('running');
     outcomeRevealed.current = false;
-    revealOutcome();
+    addLocalNarration("Got it. I'll handle that.");
     const stream = beginStream();
 
     try {
@@ -199,10 +217,12 @@ export default function App() {
     } finally {
       if (activeStream.current === stream.controller) activeStream.current = null;
     }
-  }, [beginStream, command, phase, revealOutcome, sessionId]);
+  }, [addLocalNarration, beginStream, command, phase, revealOutcome, sessionId]);
 
   const decide = useCallback(async (status: 'allow' | 'deny') => {
     if (!sessionId || approvals.length === 0) return;
+    const narration = approvalDecisionNarration(approvals, status);
+    if (narration) addLocalNarration(narration);
     setError('');
     setPhase('running');
     const stream = beginStream();
@@ -227,7 +247,7 @@ export default function App() {
     } finally {
       if (activeStream.current === stream.controller) activeStream.current = null;
     }
-  }, [approvals, beginStream, revealOutcome, sessionId]);
+  }, [addLocalNarration, approvals, beginStream, revealOutcome, sessionId]);
 
   const reset = useCallback(() => {
     activeStream.current?.abort();
@@ -237,6 +257,7 @@ export default function App() {
     setPhase('idle');
     setTrace([]);
     setResponse('');
+    setNarrations([]);
     setNotices([]);
     setApprovals([]);
     setError('');
@@ -297,6 +318,7 @@ export default function App() {
               panelRef={outcomePanel}
               phase={phase}
               response={response}
+              narrations={narrations}
               notices={notices}
               approvals={approvals}
               error={error}

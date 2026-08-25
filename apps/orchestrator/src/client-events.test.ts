@@ -93,6 +93,160 @@ describe('SessionEventState', () => {
     ).toEqual([]);
   });
 
+  it('adds a conversational fallback when a calendar tool starts without a user-facing preamble', () => {
+    const state = new SessionEventState();
+    const events = state.ingest({
+      type: 'model.message',
+      id: 'calendar-message',
+      threadId: 'main',
+      createdAt: new Date().toISOString(),
+      content: null,
+      toolCalls: [
+        {
+          id: 'calendar-call',
+          type: 'function',
+          function: { name: 'list_calendar_events', arguments: '{"timeMin":"2026-08-26T00:00:00Z","timeMax":"2026-08-27T00:00:00Z"}' },
+          toolInfo: {
+            type: 'mcp',
+            name: 'list_calendar_events',
+            serverId: 'server-1',
+            serverName: 'jarvis-google-workspace',
+          },
+        },
+      ],
+    } as TrueForgeApi.TurnStreamingEvent);
+
+    expect(events).toContainEqual({
+      type: 'narration',
+      id: 'tool-narration:calendar-message',
+      content: "I'll check your calendar now.",
+    });
+  });
+
+  it('does not duplicate a real root-agent progress preamble', () => {
+    const state = new SessionEventState();
+    state.ingest({
+      type: 'model.message.delta',
+      id: 'progress-delta',
+      threadId: 'main',
+      content: "I'll check your calendar now.",
+    } as TrueForgeApi.TurnStreamingEvent);
+
+    const events = state.ingest({
+      type: 'model.message',
+      id: 'calendar-after-preamble',
+      threadId: 'main',
+      createdAt: new Date().toISOString(),
+      content: null,
+      toolCalls: [
+        {
+          id: 'calendar-call-2',
+          type: 'function',
+          function: { name: 'list_calendar_events', arguments: '{}' },
+          toolInfo: {
+            type: 'mcp',
+            name: 'list_calendar_events',
+            serverId: 'server-1',
+            serverName: 'jarvis-google-workspace',
+          },
+        },
+      ],
+    } as TrueForgeApi.TurnStreamingEvent);
+
+    expect(events.some((event) => event.type === 'narration')).toBe(false);
+  });
+
+  it('resets the fallback after a tool result so a later inbox check can be narrated', () => {
+    const state = new SessionEventState();
+    state.ingest({
+      type: 'model.message.delta',
+      id: 'calendar-preamble',
+      threadId: 'main',
+      content: "I'll check your calendar first.",
+    } as TrueForgeApi.TurnStreamingEvent);
+    state.ingest({
+      type: 'model.message',
+      id: 'calendar-message',
+      threadId: 'main',
+      createdAt: new Date().toISOString(),
+      content: null,
+      toolCalls: [
+        {
+          id: 'calendar-call',
+          type: 'function',
+          function: { name: 'list_calendar_events', arguments: '{}' },
+          toolInfo: {
+            type: 'mcp',
+            name: 'list_calendar_events',
+            serverId: 'server-1',
+            serverName: 'jarvis-google-workspace',
+          },
+        },
+      ],
+    } as TrueForgeApi.TurnStreamingEvent);
+    state.ingest({
+      type: 'tool.response',
+      id: 'calendar-response',
+      threadId: 'main',
+      toolCallId: 'calendar-call',
+      createdAt: new Date().toISOString(),
+      content: JSON.stringify({ content: [{ type: 'text', text: '[]' }] }),
+    } as TrueForgeApi.TurnStreamingEvent);
+
+    const next = state.ingest({
+      type: 'model.message',
+      id: 'gmail-message-after-calendar',
+      threadId: 'subagent-mail',
+      createdAt: new Date().toISOString(),
+      content: null,
+      toolCalls: [
+        {
+          id: 'gmail-call-after-calendar',
+          type: 'function',
+          function: { name: 'search_emails', arguments: '{"query":"is:unread"}' },
+          toolInfo: {
+            type: 'mcp',
+            name: 'search_emails',
+            serverId: 'server-1',
+            serverName: 'jarvis-google-workspace',
+          },
+        },
+      ],
+    } as TrueForgeApi.TurnStreamingEvent);
+
+    expect(next).toContainEqual({
+      type: 'narration',
+      id: 'tool-narration:gmail-message-after-calendar',
+      content: "I'll check your inbox now.",
+    });
+  });
+
+  it('never says an approval-gated email is being sent before approval', () => {
+    const state = new SessionEventState();
+    const events = state.ingest({
+      type: 'model.message',
+      id: 'send-email-message',
+      threadId: 'main',
+      createdAt: new Date().toISOString(),
+      content: null,
+      toolCalls: [
+        {
+          id: 'send-email-call',
+          type: 'function',
+          function: { name: 'send_email', arguments: '{"to":["ava@example.com"],"subject":"Hello","body":"Hi"}' },
+          toolInfo: {
+            type: 'mcp',
+            name: 'send_email',
+            serverId: 'server-1',
+            serverName: 'jarvis-google-workspace',
+          },
+        },
+      ],
+    } as TrueForgeApi.TurnStreamingEvent);
+
+    expect(events.some((event) => event.type === 'narration')).toBe(false);
+  });
+
   it('fails safely when approval call details cannot be reconstructed', () => {
     const state = new SessionEventState();
     const events = state.ingest({

@@ -1,0 +1,21 @@
+.progress-narration {
+  margin-bottom: 14px;
+  padding: 11px 13px;
+  border-left: 2px solid rgba(97, 232, 198, .55);
+  background: rgba(97, 232, 198, .045);
+}
+
+.progress-narration span {
+  display: block;
+  color: var(--accent);
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: .12em;
+}
+
+.progress-narration p {
+  margin: 6px 0 0;
+  color: #b8c4cf;
+  font-size: 11px;
+  line-height: 1.5;
+}

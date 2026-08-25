@@ -19,6 +19,11 @@ export type OperationNotice = {
   system?: OperationalSystem;
 };
 
+export type ProgressNarration = {
+  id: string;
+  content: string;
+};
+
 export type TraceItem = {
   id: string;
   category: 'harness' | 'connector' | 'sandbox' | 'subagent' | 'tool';
@@ -41,6 +46,7 @@ export type StreamEvent =
   | Omit<TraceItem, 'timestamp'> & { type: 'trace' }
   | { type: 'system'; system: OperationalSystem; state: 'ready' | 'active' | 'error'; detail: string }
   | OperationNotice & { type: 'notice' }
+  | ProgressNarration & { type: 'narration' }
   | { type: 'delta'; content: string }
   | { type: 'approval'; calls: ApprovalCall[] }
   | { type: 'metrics'; totalTokens?: number; totalCostUsd?: number }

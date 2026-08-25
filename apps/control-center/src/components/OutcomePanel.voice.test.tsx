@@ -34,6 +34,7 @@ describe('OutcomePanel streaming voice', () => {
         panelRef={panelRef}
         phase="running"
         response="I checked your calendar. I am checking Gmail"
+        narrations={[]}
         notices={[]}
         approvals={[]}
         error=""
@@ -48,6 +49,27 @@ describe('OutcomePanel streaming voice', () => {
     expect(enqueue).not.toHaveBeenCalledWith('I checked your calendar. I am checking Gmail');
   });
 
+  it('queues runtime progress narration while tools are running', () => {
+    const panelRef = { current: null };
+    render(
+      <OutcomePanel
+        panelRef={panelRef}
+        phase="running"
+        response=""
+        narrations={[{ id: 'calendar-progress', content: "I'll check your calendar now." }]}
+        notices={[]}
+        approvals={[]}
+        error=""
+        metrics={{}}
+        realtimeVoiceAvailable
+        neuralTtsAvailable
+        onDecision={vi.fn()}
+      />,
+    );
+
+    expect(enqueue).toHaveBeenCalledWith("I'll check your calendar now.");
+  });
+
   it('does not replay the full accumulated response when the turn completes', () => {
     const panelRef = { current: null };
     const { rerender } = render(
@@ -55,6 +77,7 @@ describe('OutcomePanel streaming voice', () => {
         panelRef={panelRef}
         phase="running"
         response="Calendar checked."
+        narrations={[]}
         notices={[]}
         approvals={[]}
         error=""
@@ -73,6 +96,7 @@ describe('OutcomePanel streaming voice', () => {
         panelRef={panelRef}
         phase="done"
         response="Calendar checked."
+        narrations={[]}
         notices={[]}
         approvals={[]}
         error=""
