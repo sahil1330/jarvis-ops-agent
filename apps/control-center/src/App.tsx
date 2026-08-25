@@ -52,9 +52,9 @@ export default function App() {
     }, 0);
   }, []);
 
-  const addLocalNarration = useCallback((content: string) => {
+  const addLocalNarration = useCallback((content: string, interrupt = false) => {
     const id = `local-narration:${++localNarrationSequence.current}`;
-    setNarrations((current) => [...current, { id, content }].slice(-8));
+    setNarrations((current) => [...current, { id, content, ...(interrupt ? { interrupt: true } : {}) }].slice(-8));
     revealOutcome();
   }, [revealOutcome]);
 
@@ -221,8 +221,6 @@ export default function App() {
 
   const decide = useCallback(async (status: 'allow' | 'deny') => {
     if (!sessionId || approvals.length === 0) return;
-    const narration = approvalDecisionNarration(approvals, status);
-    if (narration) addLocalNarration(narration);
     setError('');
     setPhase('running');
     const stream = beginStream();
@@ -237,6 +235,10 @@ export default function App() {
         })),
         stream.onEvent,
         stream.controller.signal,
+        () => {
+          const narration = approvalDecisionNarration(approvals, status);
+          if (narration) addLocalNarration(narration, true);
+        },
       );
       setApprovals([]);
     } catch (reason) {

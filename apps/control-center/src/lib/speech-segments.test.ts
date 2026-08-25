@@ -37,4 +37,22 @@ describe('consumeSpeechSegments', () => {
     const result = consumeSpeechSegments('', 'I found two things: one meeting conflict; one urgent email.');
     expect(result.segments).toEqual(['I found two things: one meeting conflict; one urgent email.']);
   });
+
+  it('does not narrate an incomplete fenced code block across streaming deltas', () => {
+    const first = consumeSpeechSegments('', 'I checked the script. ```ts\nconst value = 1;\n');
+    expect(first.segments).toEqual(['I checked the script.']);
+    expect(first.rest).toContain('```ts');
+
+    const second = consumeSpeechSegments(first.rest, 'console.log(value);\n``` All good.');
+    expect(second.segments).toEqual(['All good.']);
+    expect(second.rest).toBe('');
+  });
+
+  it('keeps common abbreviations inside their sentence', () => {
+    const result = consumeSpeechSegments('', 'Dr. Smith replied, e.g. with a new time. I will handle it.');
+    expect(result.segments).toEqual([
+      'Dr. Smith replied, e.g. with a new time.',
+      'I will handle it.',
+    ]);
+  });
 });

@@ -16,9 +16,14 @@ async function parseError(response: Response): Promise<string> {
   }
 }
 
-async function consumeNdjson(response: Response, onEvent: (event: StreamEvent) => void): Promise<void> {
+async function consumeNdjson(
+  response: Response,
+  onEvent: (event: StreamEvent) => void,
+  onAccepted?: () => void,
+): Promise<void> {
   if (!response.ok) throw new Error(await parseError(response));
   if (!response.body) throw new Error('The server returned an empty stream.');
+  onAccepted?.();
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -105,6 +110,7 @@ export async function resolveApproval(
   decisions: ApprovalDecision[],
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal,
+  onAccepted?: () => void,
 ): Promise<void> {
   const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/approvals`, {
     method: 'POST',
@@ -112,5 +118,5 @@ export async function resolveApproval(
     body: JSON.stringify({ decisions }),
     signal,
   });
-  await consumeNdjson(response, onEvent);
+  await consumeNdjson(response, onEvent, onAccepted);
 }

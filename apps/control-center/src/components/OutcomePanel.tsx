@@ -30,6 +30,7 @@ const phaseLabels: Record<AgentPhase, string> = {
 
 const STREAM_IDLE_FLUSH_MS = 750;
 const MIN_IDLE_FLUSH_CHARACTERS = 24;
+const RESPONSE_OVERLAP_ANCHOR = 256;
 
 function OutcomeHeading({ phase, hasResponse, hasIssues }: { phase: AgentPhase; hasResponse: boolean; hasIssues: boolean }) {
   if (phase === 'error') return <>Jarvis needs your attention</>;
@@ -45,6 +46,25 @@ function OutcomeHeading({ phase, hasResponse, hasIssues }: { phase: AgentPhase; 
 function approvalSummary(calls: ApprovalCall[]): string {
   const labels = calls.map((call) => call.toolName.includes('email') ? 'send an email' : call.toolName.includes('calendar') ? 'change your calendar' : call.toolName.replaceAll('_', ' '));
   return `I need your approval before I ${labels.join(' and ')}. Please review the exact action on screen.`;
+}
+
+function rollingAppend(previous: string, current: string): { incoming: string; reset: boolean } {
+  if (!previous) return { incoming: current, reset: false };
+  if (current.startsWith(previous)) return { incoming: current.slice(previous.length), reset: false };
+  if (!current) return { incoming: '', reset: true };
+
+  const anchorLength = Math.min(RESPONSE_OVERLAP_ANCHOR, previous.length, current.length);
+  const anchor = current.slice(0, anchorLength);
+  let candidate = previous.lastIndexOf(anchor);
+  while (candidate > 0) {
+    const retained = previous.slice(candidate);
+    if (current.startsWith(retained)) {
+      return { incoming: current.slice(retained.length), reset: false };
+    }
+    candidate = previous.lastIndexOf(anchor, candidate - 1);
+  }
+
+  return { incoming: current, reset: true };
 }
 
 export function OutcomePanel({
@@ -64,7 +84,7 @@ export function OutcomePanel({
   const hasIssues = notices.some((notice) => notice.severity === 'error');
   const attentionTarget = useRef<HTMLDivElement | null>(null);
   const attentionKey = error ? `fatal:${error}` : notices.at(-1)?.id;
-  const spokenResponseLength = useRef(0);
+  const spokenResponseSnapshot = useRef('');
   const spokenNarrationIds = useRef(new Set<string>());
   const pendingSpeech = useRef('');
   const voice = useSpeechOutput(realtimeVoiceAvailable, neuralTtsAvailable);
@@ -83,15 +103,15 @@ export function OutcomePanel({
   }, [attentionKey]);
 
   useEffect(() => {
-    if (response.length < spokenResponseLength.current) {
+    const previous = spokenResponseSnapshot.current;
+    const { incoming, reset } = rollingAppend(previous, response);
+    spokenResponseSnapshot.current = response;
+
+    if (reset) {
       voice.stop();
-      spokenResponseLength.current = 0;
       pendingSpeech.current = '';
     }
-
-    const incoming = response.slice(spokenResponseLength.current);
     if (!incoming) return;
-    spokenResponseLength.current = response.length;
 
     const next = consumeSpeechSegments(pendingSpeech.current, incoming);
     pendingSpeech.current = next.rest;
@@ -102,9 +122,10 @@ export function OutcomePanel({
     for (const narration of narrations) {
       if (spokenNarrationIds.current.has(narration.id)) continue;
       spokenNarrationIds.current.add(narration.id);
-      voice.enqueue(narration.content);
+      if (narration.interrupt) voice.speakNow(narration.content);
+      else voice.enqueue(narration.content);
     }
-  }, [narrations, voice.enqueue]);
+  }, [narrations, voice.enqueue, voice.speakNow]);
 
   useEffect(() => {
     if (phase !== 'running' || pendingSpeech.current.trim().length < MIN_IDLE_FLUSH_CHARACTERS) return;
@@ -115,7 +136,7 @@ export function OutcomePanel({
   useEffect(() => {
     if (phase === 'idle') {
       voice.stop();
-      spokenResponseLength.current = 0;
+      spokenResponseSnapshot.current = '';
       spokenNarrationIds.current.clear();
       pendingSpeech.current = '';
       return;
@@ -198,9 +219,9 @@ export function OutcomePanel({
         )}
 
         {response && (
-          <div className="agent-response" role="log" aria-live="polite" aria-relevant="additions text">
+          <div className="agent-response">
             <div className="response-label"><i aria-hidden="true" /> JARVIS RESPONSE</div>
-            <span className="sr-only">{response}</span>
+            <span className="sr-only">Jarvis response: {response}</span>
             <p aria-hidden="true">
               {revealedResponse}
               {revealedResponse.length < response.length && <span className="response-caret" />}

@@ -39,7 +39,11 @@ export function updateVoiceActivity(
   config = DEFAULT_VOICE_ACTIVITY_CONFIG,
 ): { state: VoiceActivityState; shouldStop: boolean } {
   const safeRms = Number.isFinite(rms) ? Math.max(0, Math.min(rms, 1)) : 0;
-  const noiseFloor = state.speechStarted
+
+  // Once a possible speech onset is being confirmed, freeze the ambient estimate.
+  // Otherwise sustained speech can teach the detector that the speaker is "noise"
+  // and raise its own threshold before the confirmation window completes.
+  const noiseFloor = state.speechStarted || state.candidateStartedAt !== null
     ? state.noiseFloor
     : Math.min(0.03, state.noiseFloor * 0.94 + Math.min(safeRms, 0.04) * 0.06);
   const speechThreshold = Math.max(config.minimumSpeechRms, noiseFloor * config.speechToNoiseRatio);

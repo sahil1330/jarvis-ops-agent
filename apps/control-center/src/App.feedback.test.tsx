@@ -50,7 +50,8 @@ describe('App live feedback', () => {
     const failure = await screen.findByRole('alert');
     expect(failure).toHaveTextContent('Gmail search failed');
     expect(failure).toHaveTextContent('invalid_grant');
-    expect(screen.getByRole('log')).toHaveTextContent('I could not read Gmail');
+    expect(screen.getByText(/Jarvis response: I could not read Gmail/i)).toBeInTheDocument();
+    expect(screen.queryByRole('log')).not.toBeInTheDocument();
     expect(screen.getByText('Failed', { selector: '.system-status span' })).toBeVisible();
     expect(screen.getAllByText('Completed with issues').length).toBeGreaterThan(0);
     await waitFor(() => expect(document.activeElement).toBe(failure));

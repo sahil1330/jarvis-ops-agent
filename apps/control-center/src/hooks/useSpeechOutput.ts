@@ -89,9 +89,11 @@ export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = fal
   const activeControllersRef = useRef(new Set<AbortController>());
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
+  const neuralPlaybackResolveRef = useRef<((played: boolean) => void) | null>(null);
   const browserResolveRef = useRef<(() => void) | null>(null);
   const realtimeConnectionRef = useRef<RealtimeConnection | null>(null);
   const realtimeConnectingRef = useRef<Promise<RealtimeConnection> | null>(null);
+  const realtimeSetupGenerationRef = useRef(0);
   const realtimePendingRef = useRef(new Map<string, PendingRealtimeResponse>());
   const realtimeSpeechCounterRef = useRef(0);
   const realtimeFailedRef = useRef(false);
@@ -109,6 +111,7 @@ export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = fal
   }, []);
 
   const closeRealtime = useCallback((message = 'Realtime voice stopped') => {
+    realtimeSetupGenerationRef.current += 1;
     const error = new Error(message);
     for (const pending of realtimePendingRef.current.values()) {
       window.clearTimeout(pending.timer);
@@ -129,6 +132,8 @@ export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = fal
     activeControllersRef.current.clear();
     queueRef.current = [];
     neuralPrefetchRef.current = null;
+    neuralPlaybackResolveRef.current?.(false);
+    neuralPlaybackResolveRef.current = null;
     cleanupCurrentAudio();
     closeRealtime();
     browserResolveRef.current?.();
@@ -139,6 +144,14 @@ export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = fal
   }, [cleanupCurrentAudio, closeRealtime]);
 
   useEffect(() => stop, [stop]);
+
+  useEffect(() => {
+    if (!realtimeAvailable) {
+      realtimeFailedRef.current = false;
+      closeRealtime('Realtime voice capability unavailable');
+    }
+    setMode(realtimeAvailable ? 'realtime' : neuralAvailable ? 'neural' : 'browser');
+  }, [closeRealtime, neuralAvailable, realtimeAvailable]);
 
   const playBrowserSpeech = useCallback((text: string, generation: number): Promise<void> => {
     if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
@@ -201,9 +214,11 @@ export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = fal
       const finish = (played: boolean) => {
         if (settled) return;
         settled = true;
+        if (neuralPlaybackResolveRef.current === finish) neuralPlaybackResolveRef.current = null;
         if (audioRef.current === audio) cleanupCurrentAudio();
         resolve(played);
       };
+      neuralPlaybackResolveRef.current = finish;
       audio.onended = () => finish(true);
       audio.onerror = () => finish(false);
       void audio.play().catch(() => finish(false));
@@ -233,7 +248,15 @@ export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = fal
     if (realtimeConnectingRef.current) return realtimeConnectingRef.current;
     if (typeof RTCPeerConnection === 'undefined') throw new Error('WebRTC is not supported in this browser');
 
+    const setupGeneration = realtimeSetupGenerationRef.current;
     let provisionalConnection: RealtimeConnection | null = null;
+
+    const assertSetupCurrent = () => {
+      if (setupGeneration !== realtimeSetupGenerationRef.current || !enabledRef.current) {
+        throw new DOMException('Realtime voice setup was cancelled', 'AbortError');
+      }
+    };
+
     const connectionPromise = (async () => {
       const peer = new RTCPeerConnection();
       peer.addTransceiver('audio', { direction: 'recvonly' });
@@ -264,6 +287,7 @@ export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = fal
       provisionalConnection = connection;
 
       peer.ontrack = (event) => {
+        if (setupGeneration !== realtimeSetupGenerationRef.current) return;
         const stream = event.streams[0] ?? new MediaStream([event.track]);
         audio.srcObject = stream;
 
@@ -328,10 +352,14 @@ export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = fal
       });
 
       const offer = await peer.createOffer();
+      assertSetupCurrent();
       await peer.setLocalDescription(offer);
+      assertSetupCurrent();
       if (!offer.sdp) throw new Error('Browser did not produce a WebRTC offer');
       const answerSdp = await exchangeRealtimeVoiceSdp(offer.sdp);
+      assertSetupCurrent();
       await peer.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+      assertSetupCurrent();
 
       await new Promise<void>((resolve, reject) => {
         if (channel.readyState === 'open') {
@@ -348,6 +376,7 @@ export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = fal
           reject(new Error('Realtime voice data channel failed'));
         }, { once: true });
       });
+      assertSetupCurrent();
 
       realtimeConnectionRef.current = connection;
       realtimeConnectingRef.current = null;
@@ -358,11 +387,10 @@ export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = fal
       });
       return connection;
     })().catch((error) => {
-      realtimeConnectingRef.current = null;
+      if (setupGeneration === realtimeSetupGenerationRef.current) realtimeConnectingRef.current = null;
       if (provisionalConnection && realtimeConnectionRef.current !== provisionalConnection) {
         disposeRealtimeConnection(provisionalConnection);
       }
-      closeRealtime('Realtime voice connection failed');
       throw error;
     });
 
@@ -405,12 +433,18 @@ export function useSpeechOutput(realtimeAvailable = false, neuralAvailable = fal
       });
       return generation === generationRef.current && enabledRef.current;
     } catch (error) {
+      if (
+        generation !== generationRef.current ||
+        !enabledRef.current ||
+        (error instanceof DOMException && error.name === 'AbortError')
+      ) return false;
       console.warn('[voice] Realtime session failed; using neural speech fallback.', error);
       realtimeFailedRef.current = true;
+      setMode(neuralAvailable ? 'neural' : 'browser');
       closeRealtime('Realtime voice unavailable; falling back');
       return false;
     }
-  }, [closeRealtime, ensureRealtimeConnection, realtimeAvailable]);
+  }, [closeRealtime, ensureRealtimeConnection, neuralAvailable, realtimeAvailable]);
 
   const drainQueue = useCallback(async () => {
     const generation = generationRef.current;

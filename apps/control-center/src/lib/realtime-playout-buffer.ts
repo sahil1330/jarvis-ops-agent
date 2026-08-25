@@ -64,11 +64,12 @@ export class RealtimePlayoutBuffer {
         return;
       }
 
-      if (this.boundaryGapSeen) {
-        this.boundaryPending = false;
-        this.skippedBoundarySamples = 0;
-        this.boundaryGapSeen = false;
-      }
+      // Any audible chunk ends the boundary candidate. If the preceding silence
+      // was shorter than the transport-gap threshold it must not be carried into
+      // a later, unrelated natural pause in the new response.
+      this.boundaryPending = false;
+      this.skippedBoundarySamples = 0;
+      this.boundaryGapSeen = false;
     }
 
     const copy = samples.slice();

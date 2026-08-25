@@ -31,6 +31,22 @@ describe('RealtimePlayoutBuffer', () => {
     expect([...buffer.pull(4)]).toEqual([0.25, 0.25, 0.75, 0.75]);
   });
 
+  it('does not accumulate separate natural pauses into a transport gap', () => {
+    const buffer = new RealtimePlayoutBuffer(1_000, {
+      lookaheadMs: 20,
+      boundarySilenceMs: 3,
+      audibleRms: 0.01,
+    });
+    buffer.push(samples([0.25, 0.25]));
+    buffer.markResponseBoundary();
+    buffer.push(samples([0, 0]));
+    buffer.push(samples([0.5, 0.5]));
+    buffer.push(samples([0, 0]));
+    buffer.push(samples([0.75, 0.75]));
+
+    expect([...buffer.pull(8)]).toEqual([0.25, 0.25, 0.5, 0.5, 0, 0, 0.75, 0.75]);
+  });
+
   it('forces a short completed response to start without filling the lookahead', () => {
     const buffer = new RealtimePlayoutBuffer(1_000, { lookaheadMs: 20, audibleRms: 0.01 });
     buffer.push(samples([0.4, 0.4]));
