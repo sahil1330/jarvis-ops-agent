@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 export type MemoryCategory = 'profile' | 'relationship' | 'preference' | 'fact';
@@ -10,7 +11,9 @@ export type MemoryRecord = {
   updatedAt: string;
 };
 
-type MemoryFile = { version: 1; memories: MemoryRecord[] };
+export type MemoryFile = { version: 1; memories: MemoryRecord[] };
+
+const pathQueues = new Map<string, Promise<unknown>>();
 
 function normalizedTerms(value: string): string[] {
   return value
@@ -20,9 +23,18 @@ function normalizedTerms(value: string): string[] {
     .filter((term) => term.length > 1);
 }
 
-export class MemoryStore {
-  private queue: Promise<unknown> = Promise.resolve();
+export async function writeMemoryFileAtomically(filePath: string, file: MemoryFile): Promise<void> {
+  await mkdir(dirname(filePath), { recursive: true });
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(tempPath, `${JSON.stringify(file, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    await rename(tempPath, filePath);
+  } finally {
+    await rm(tempPath, { force: true }).catch(() => undefined);
+  }
+}
 
+export class MemoryStore {
   constructor(private readonly filePath: string) {}
 
   private async read(): Promise<MemoryFile> {
@@ -44,15 +56,17 @@ export class MemoryStore {
   }
 
   private async write(file: MemoryFile): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    const tempPath = `${this.filePath}.${process.pid}.tmp`;
-    await writeFile(tempPath, `${JSON.stringify(file, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-    await rename(tempPath, this.filePath);
+    await writeMemoryFileAtomically(this.filePath, file);
   }
 
   private serialized<T>(operation: () => Promise<T>): Promise<T> {
-    const next = this.queue.then(operation, operation);
-    this.queue = next.then(() => undefined, () => undefined);
+    const previous = pathQueues.get(this.filePath) ?? Promise.resolve();
+    const next = previous.then(operation, operation);
+    const settled = next.then(() => undefined, () => undefined);
+    pathQueues.set(this.filePath, settled);
+    void settled.finally(() => {
+      if (pathQueues.get(this.filePath) === settled) pathQueues.delete(this.filePath);
+    });
     return next;
   }
 

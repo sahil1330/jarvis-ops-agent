@@ -16,6 +16,7 @@ type Env = NodeJS.ProcessEnv;
 
 const repoRoot = resolve(process.cwd());
 const timeoutMs = 8_000;
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost']);
 
 function elapsed(start: number): number {
   return Math.round(performance.now() - start);
@@ -40,9 +41,8 @@ export function redactError(reason: unknown): string {
 }
 
 export function memoryPathForDoctor(rawPath: string | undefined): string {
-  const value = rawPath || '../../.jarvis/memory.json';
-  if (isAbsolute(value)) return value;
-  return resolve(repoRoot, 'apps/google-workspace-mcp', value);
+  const value = rawPath?.trim() || '.jarvis/memory.json';
+  return isAbsolute(value) ? value : resolve(repoRoot, value);
 }
 
 export function configChecks(env: Env, allowDemo = false): DoctorResult[] {
@@ -77,16 +77,28 @@ export function configChecks(env: Env, allowDemo = false): DoctorResult[] {
     checks.push(result('Config · MCP bearer strength', 'pass', 'Bearer token length is acceptable.'));
   }
 
-  const mailbox = env.GOOGLE_USER_EMAIL?.trim() || 'me';
+  const orchestratorHost = env.ORCHESTRATOR_HOST?.trim() || '127.0.0.1';
+  checks.push(result(
+    'Config · Orchestrator exposure',
+    LOOPBACK_HOSTS.has(orchestratorHost) ? 'pass' : 'fail',
+    LOOPBACK_HOSTS.has(orchestratorHost)
+      ? `Orchestrator is bound to loopback (${orchestratorHost}).`
+      : `ORCHESTRATOR_HOST=${orchestratorHost} exposes server-funded audio/session endpoints beyond loopback.`,
+    LOOPBACK_HOSTS.has(orchestratorHost)
+      ? undefined
+      : 'Use ORCHESTRATOR_HOST=127.0.0.1 for the local demo. Add real application authentication before remote exposure.',
+  ));
+
+  const legacyMailbox = env.GOOGLE_USER_EMAIL?.trim();
   checks.push(result(
     'Config · Gmail mailbox identity',
-    mailbox === 'me' ? 'pass' : 'fail',
-    mailbox === 'me'
-      ? 'Using the authenticated OAuth mailbox via users/me.'
-      : `GOOGLE_USER_EMAIL is set to a literal mailbox (${mailbox}).`,
-    mailbox === 'me'
-      ? undefined
-      : 'For personal OAuth, set GOOGLE_USER_EMAIL=me. Literal mailboxes can trigger Delegation denied errors.',
+    legacyMailbox && legacyMailbox !== 'me' ? 'warn' : 'pass',
+    legacyMailbox && legacyMailbox !== 'me'
+      ? `GOOGLE_USER_EMAIL=${legacyMailbox} is deprecated and ignored; Jarvis now always uses Gmail users/me.`
+      : 'Gmail is locked to the mailbox authenticated by the OAuth token via users/me.',
+    legacyMailbox && legacyMailbox !== 'me'
+      ? 'Remove GOOGLE_USER_EMAIL from .env to avoid confusion.'
+      : undefined,
   ));
 
   const demoMode = env.JARVIS_DEMO_MODE === 'true';

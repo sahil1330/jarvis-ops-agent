@@ -1,8 +1,12 @@
 import { config as loadEnv } from 'dotenv';
-import { resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
-loadEnv({ path: resolve(process.cwd(), '../../.env'), quiet: true });
+const moduleDirectory = dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = resolve(moduleDirectory, '../../..');
+
+loadEnv({ path: resolve(repositoryRoot, '.env'), quiet: true });
 loadEnv({ quiet: true });
 
 const booleanFromString = z
@@ -11,16 +15,23 @@ const booleanFromString = z
   .transform((value) => value === 'true');
 
 const optionalString = z.string().optional().transform((value) => value || undefined);
+const memoryPath = z
+  .string()
+  .optional()
+  .transform((value) => {
+    const configured = value?.trim();
+    if (!configured) return resolve(repositoryRoot, '.jarvis/memory.json');
+    return isAbsolute(configured) ? configured : resolve(repositoryRoot, configured);
+  });
 
 const schema = z.object({
   MCP_HOST: z.string().default('127.0.0.1'),
   MCP_PORT: z.coerce.number().int().positive().default(8788),
   JARVIS_MCP_BEARER_TOKEN: optionalString,
-  JARVIS_MEMORY_PATH: z.string().default(resolve(process.cwd(), '../../.jarvis/memory.json')),
+  JARVIS_MEMORY_PATH: memoryPath,
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REFRESH_TOKEN: z.string().optional(),
-  GOOGLE_USER_EMAIL: z.string().default('me'),
   JARVIS_DEMO_MODE: booleanFromString,
 });
 
