@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 export type MemoryCategory = 'profile' | 'relationship' | 'preference' | 'fact';
@@ -21,6 +21,17 @@ function normalizedTerms(value: string): string[] {
     .split(/[^a-z0-9]+/)
     .map((term) => term.trim())
     .filter((term) => term.length > 1);
+}
+
+export async function writeMemoryFileAtomically(filePath: string, file: MemoryFile): Promise<void> {
+  await mkdir(dirname(filePath), { recursive: true });
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(tempPath, `${JSON.stringify(file, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    await rename(tempPath, filePath);
+  } finally {
+    await rm(tempPath, { force: true }).catch(() => undefined);
+  }
 }
 
 export class MemoryStore {
@@ -45,10 +56,7 @@ export class MemoryStore {
   }
 
   private async write(file: MemoryFile): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
-    await writeFile(tempPath, `${JSON.stringify(file, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-    await rename(tempPath, this.filePath);
+    await writeMemoryFileAtomically(this.filePath, file);
   }
 
   private serialized<T>(operation: () => Promise<T>): Promise<T> {
