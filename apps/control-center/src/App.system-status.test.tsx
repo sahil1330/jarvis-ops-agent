@@ -17,6 +17,7 @@ describe('App system status', () => {
 
     const systems = screen.getByRole('complementary', { name: 'Connected systems' });
     expect(within(systems).getByText('Checking', { selector: '.system-status span' })).toBeVisible();
-    expect(within(systems).getAllByText('Not checked', { selector: '.system-status span' })).toHaveLength(3);
+    expect(within(systems).getAllByText('Not checked', { selector: '.system-status span' })).toHaveLength(4);
+    expect(within(systems).getByText('GitHub')).toBeVisible();
   });
 });
