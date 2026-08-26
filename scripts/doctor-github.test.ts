@@ -16,7 +16,15 @@ describe('Jarvis GitHub doctor', () => {
   it('accepts the isolated golden-mission connector configuration', () => {
     const checks = githubConfigChecks(baseEnv());
     assert.equal(checks.some((item) => item.status === 'fail'), false);
+    assert.equal(checks.find((item) => item.name === 'Config · Golden repository')?.status, 'pass');
     assert.equal(checks.find((item) => item.name === 'Config · Golden regression branch')?.status, 'pass');
+  });
+
+  it('blocks a different repository even when its slug is otherwise valid', () => {
+    const checks = githubConfigChecks({ ...baseEnv(), JARVIS_GITHUB_REPOSITORY: 'sahil1330/other-demo' });
+    const repository = checks.find((item) => item.name === 'Config · Golden repository');
+    assert.equal(repository?.status, 'fail');
+    assert.match(repository?.fix ?? '', /sahil1330\/jarvis-ops-agent/);
   });
 
   it('blocks accidentally pointing the golden mission at main', () => {
