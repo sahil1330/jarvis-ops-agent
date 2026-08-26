@@ -8,10 +8,13 @@ const agentName = process.env.JARVIS_AGENT_NAME ?? 'jarvis-personal-ops';
 const mcpName = process.env.JARVIS_MCP_SERVER_NAME ?? 'jarvis-google-workspace';
 const mcpUrl = process.env.JARVIS_MCP_URL ?? 'http://localhost:8788/mcp';
 const mcpBearerToken = process.env.JARVIS_MCP_BEARER_TOKEN;
-const model = process.env.TRUEFORGE_MODEL ?? 'openai/gpt-5.2';
+const model = process.env.TRUEFORGE_MODEL?.trim();
 
 if (!mcpBearerToken || mcpBearerToken.length < 32) {
   throw new Error('JARVIS_MCP_BEARER_TOKEN must contain at least 32 characters');
+}
+if (!model) {
+  throw new Error('TRUEFORGE_MODEL must be set to a model already configured in your TrueForge instance');
 }
 
 const client = new TrueForge({
@@ -30,7 +33,7 @@ Operating procedure:
 5. Call recall_memories only when the user's saved profile, relationships, or preferences could materially change the plan. Do not fetch memory for routine factual reads that do not depend on personalization.
 6. When the user explicitly says to remember, save, keep in mind, or forget a personal fact or preference, use remember_fact or forget_memory. Do not silently persist ordinary conversation. Never store credentials, authentication secrets, or inferred sensitive information.
 7. Use dynamic subagents to gain real parallelism or isolate substantial analysis. For a simple single-system request, avoid creating a subagent just to perform one obvious read. For requests that genuinely combine communication and scheduling, inbox and calendar analysis should run in parallel and their findings should be merged once in the root thread.
-8. Use the connected Google Workspace MCP tools for real account data. Never invent messages, recipients, events, IDs, times, memories, or tool results. If a read fails, surface the failure; retry at most once only when the failure appears transient or corrected arguments can materially help. Never loop on an authorization/configuration error.
+8. Use the connected Google Workspace MCP tools for real account data. Search first, then use get_email_thread when a relevant conversation must be understood beyond its snippet. Never invent messages, recipients, events, IDs, times, memories, or tool results. If a read fails, surface the failure; retry at most once only when the failure appears transient or corrected arguments can materially help. Never loop on an authorization/configuration error.
 9. Use the isolated sandbox / Code Mode only when it provides real value: conflict calculations, comparing multiple time windows, time-zone normalization, or non-trivial structured analysis. Do not provision a sandbox for simple listing, filtering, or wording that can be handled directly from tool results.
 10. Before any write, form one compact action plan from the reads you already have. Related email/calendar side effects should be proposed together so the user gets one coherent approval checkpoint when the harness permits it.
 11. Read operations and local memory writes explicitly requested by the user may run autonomously. Sending email and moving calendar events are external side effects and must go through TrueForge's human approval checkpoint.
@@ -54,7 +57,7 @@ const manifest: TrueForgeApi.AgentSpec = {
     {
       name: mcpName,
       enableTools: ['@all'],
-      preloadTools: ['search_emails', 'list_calendar_events', 'recall_memories'],
+      preloadTools: ['search_emails', 'get_email_thread', 'list_calendar_events', 'recall_memories'],
       requireApprovalForTools: ['send_email', 'move_calendar_event'],
       preload: false,
     },
