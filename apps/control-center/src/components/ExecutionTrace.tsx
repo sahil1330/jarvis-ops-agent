@@ -25,48 +25,81 @@ const stateLabels: Record<TraceItem['state'], string> = {
   error: 'Failed',
 };
 
+type MissionStageId = 'context' | 'requirements' | 'verify' | 'action';
 type MissionStage = {
-  id: 'context' | 'requirements' | 'verify' | 'action';
+  id: MissionStageId;
   label: string;
   hint: string;
   matches: (item: TraceItem) => boolean;
 };
 
-const missionStages: MissionStage[] = [
-  {
-    id: 'context',
-    label: 'Context',
-    hint: 'Meeting and deadline',
-    matches: (item) => /calendar|meeting|schedule/i.test(`${item.title} ${item.detail ?? ''}`),
-  },
-  {
-    id: 'requirements',
-    label: 'Requirements',
-    hint: 'Client evidence',
-    matches: (item) => /gmail|inbox|email|thread/i.test(`${item.title} ${item.detail ?? ''}`),
-  },
-  {
-    id: 'verify',
-    label: 'Verify',
-    hint: 'Repository + sandbox',
-    matches: (item) => item.category === 'sandbox' || /repository|github|test|verification|engineering/i.test(`${item.title} ${item.detail ?? ''}`),
-  },
-  {
-    id: 'action',
-    label: 'Action',
-    hint: 'Human-controlled write',
-    matches: (item) => /publish|pull request|approval|send|move calendar/i.test(`${item.title} ${item.detail ?? ''}`),
-  },
-];
-
 type StageState = 'pending' | 'active' | 'done' | 'error';
 
-export function deriveMissionStageState(stage: MissionStage, items: TraceItem[], phase: AgentPhase): StageState {
+function text(item: TraceItem): string {
+  return `${item.title}\n${item.detail ?? ''}`;
+}
+
+function isCalendarRead(item: TraceItem): boolean {
+  return /^(Checking Google Calendar|Calendar check (?:completed|failed))$/.test(item.title)
+    || item.detail === 'Tool · list_calendar_events';
+}
+
+function isRequirementRead(item: TraceItem): boolean {
+  return /^(Searching Gmail|Gmail search (?:completed|failed)|Get Email Thread (?:in progress|completed|failed))$/.test(item.title)
+    || item.detail === 'Tool · search_emails'
+    || item.detail === 'Tool · get_email_thread';
+}
+
+function isRepositoryRead(item: TraceItem): boolean {
+  return /^Get Repository Snapshot (?:in progress|completed|failed)$/.test(item.title)
+    || item.detail === 'Tool · get_repository_snapshot';
+}
+
+function isExternalAction(item: TraceItem): boolean {
+  return /^(Preparing Gmail action|Gmail action (?:completed|failed)|Preparing calendar change|Calendar change (?:completed|failed)|Publish Verified Fix (?:in progress|completed|failed))$/.test(item.title)
+    || item.detail === 'Tool · send_email'
+    || item.detail === 'Tool · move_calendar_event'
+    || item.detail === 'Tool · publish_verified_fix';
+}
+
+const missionStages: MissionStage[] = [
+  { id: 'context', label: 'Context', hint: 'Meeting and deadline', matches: isCalendarRead },
+  { id: 'requirements', label: 'Requirements', hint: 'Client evidence', matches: isRequirementRead },
+  { id: 'verify', label: 'Verify', hint: 'Repository + sandbox evidence', matches: isRepositoryRead },
+  { id: 'action', label: 'Action', hint: 'Human-controlled write', matches: isExternalAction },
+];
+
+function genericStageState(stage: MissionStage, items: TraceItem[]): StageState {
   const matching = items.filter(stage.matches);
-  if (stage.id === 'action' && phase === 'paused') return 'active';
   if (matching.some((item) => item.state === 'error')) return 'error';
   if (matching.some((item) => item.state === 'active' || item.state === 'waiting')) return 'active';
   if (matching.some((item) => item.state === 'done')) return 'done';
+  return 'pending';
+}
+
+export function deriveMissionStageState(stage: MissionStage, items: TraceItem[], phase: AgentPhase): StageState {
+  if (stage.id === 'action') {
+    if (phase === 'paused') return 'active';
+    return genericStageState(stage, items);
+  }
+
+  if (stage.id !== 'verify') return genericStageState(stage, items);
+
+  const repository = items.filter(isRepositoryRead);
+  if (repository.some((item) => item.state === 'error')) return 'error';
+
+  const repositoryDone = repository.some((item) => item.state === 'done');
+  const repositoryWorking = repository.some((item) => item.state === 'active' || item.state === 'waiting');
+  const sandboxProvisioned = items.some(
+    (item) => item.category === 'sandbox' && item.title === 'Isolated sandbox provisioned' && item.state === 'done',
+  );
+  const actionStarted = items.some(isExternalAction) || phase === 'paused';
+
+  // Sandbox allocation is infrastructure evidence, not successful verification. The stage becomes
+  // complete only once repository evidence + sandbox use exist and execution has advanced to the
+  // approval-gated action phase, which the agent contract permits only after targeted verification.
+  if (repositoryDone && sandboxProvisioned && actionStarted) return 'done';
+  if (repositoryWorking || repositoryDone || sandboxProvisioned) return 'active';
   return 'pending';
 }
 
