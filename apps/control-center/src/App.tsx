@@ -6,7 +6,7 @@ import { ExecutionTrace } from './components/ExecutionTrace';
 import { OutcomePanel } from './components/OutcomePanel';
 import { SystemRail } from './components/SystemRail';
 import { createSession, getHealth, resolveApproval, runTurn } from './lib/api';
-import { githubSystemStatusFromTrace } from './lib/github-system-status';
+import { githubSystemStatusFromTrace, latestGithubSystemStatus } from './lib/github-system-status';
 import {
   finishApprovalResumeTiming,
   finishToolTiming,
@@ -38,6 +38,11 @@ const INITIAL_SYSTEMS: SystemStatuses = {
   github: { state: 'unknown', detail: 'Not checked this session' },
   sandbox: { state: 'unknown', detail: 'Not used this session' },
 };
+
+function initialSystemsForTrace(trace: TraceItem[]): SystemStatuses {
+  const github = latestGithubSystemStatus(trace);
+  return github ? { ...INITIAL_SYSTEMS, github } : INITIAL_SYSTEMS;
+}
 
 type ApprovalRuntimeState = {
   phase: AgentPhase;
@@ -77,7 +82,7 @@ export default function App() {
   const [healthPhase, setHealthPhase] = useState<HealthPhase>('loading');
   const [error, setError] = useState('');
   const [metrics, setMetrics] = useState<{ totalTokens?: number; totalCostUsd?: number }>({});
-  const [systems, setSystems] = useState<SystemStatuses>(INITIAL_SYSTEMS);
+  const [systems, setSystems] = useState<SystemStatuses>(() => initialSystemsForTrace(restoredCheckpoint?.trace ?? []));
   const [speechCancelToken, setSpeechCancelToken] = useState(0);
   const activeStream = useRef<AbortController | null>(null);
   const streamGeneration = useRef(0);
