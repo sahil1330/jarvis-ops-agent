@@ -1,18 +1,24 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { env } from './config.js';
-import { demoEmails, demoEvents } from './demo-data.js';
+import { demoEmails, demoEvents, demoThreads } from './demo-data.js';
 import { googleRequest, sanitizeHeader, toBase64Url } from './google-client.js';
 import { assertIncreasingRange } from './time.js';
 
 type GmailMessageList = { messages?: Array<{ id: string; threadId: string }> };
+type GmailPart = {
+  mimeType?: string;
+  body?: { data?: string };
+  parts?: GmailPart[];
+};
 type GmailMessage = {
   id: string;
   threadId: string;
   snippet?: string;
   labelIds?: string[];
-  payload?: { headers?: Array<{ name: string; value: string }> };
+  payload?: GmailPart & { headers?: Array<{ name: string; value: string }> };
 };
+type GmailThread = { id: string; messages?: GmailMessage[] };
 
 type CalendarEvent = {
   id: string;
@@ -28,6 +34,7 @@ type CalendarEvent = {
 type CalendarEventList = { items?: CalendarEvent[] };
 
 const GMAIL_USER = 'me';
+const MAX_THREAD_BODY_CHARACTERS = 12_000;
 
 function textResult(value: unknown) {
   return {
@@ -40,12 +47,34 @@ function header(message: GmailMessage, name: string): string {
   return message.payload?.headers?.find((item) => item.name.toLowerCase() === name.toLowerCase())?.value ?? '';
 }
 
+function decodeBody(data: string): string {
+  try {
+    return Buffer.from(data.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+  } catch {
+    return '';
+  }
+}
+
+function collectTextParts(part: GmailPart | undefined, output: string[]): void {
+  if (!part) return;
+  if (part.mimeType === 'text/plain' && part.body?.data) output.push(decodeBody(part.body.data));
+  for (const child of part.parts ?? []) collectTextParts(child, output);
+}
+
+function messageBody(message: GmailMessage): string {
+  const parts: string[] = [];
+  collectTextParts(message.payload, parts);
+  if (parts.length === 0 && message.payload?.body?.data) parts.push(decodeBody(message.payload.body.data));
+  const body = parts.join('\n').trim() || message.snippet || '';
+  return body.slice(0, MAX_THREAD_BODY_CHARACTERS);
+}
+
 export function registerGoogleWorkspaceTools(server: McpServer): void {
   server.registerTool(
     'search_emails',
     {
       title: 'Search Gmail',
-      description: 'Search the user’s real Gmail inbox and return message metadata and snippets.',
+      description: 'Search the user’s real Gmail inbox and return message metadata and snippets. Use get_email_thread when the full conversation is needed.',
       inputSchema: {
         query: z.string().default('is:unread newer_than:7d'),
         maxResults: z.number().int().min(1).max(20).default(10),
@@ -83,6 +112,44 @@ export function registerGoogleWorkspaceTools(server: McpServer): void {
           unread: message.labelIds?.includes('UNREAD') ?? false,
         })),
       );
+    },
+  );
+
+  server.registerTool(
+    'get_email_thread',
+    {
+      title: 'Read Gmail thread',
+      description: 'Read a bounded Gmail conversation after search_emails identifies a relevant thread. Returns sender, recipient, subject, date and plain-text body for each message.',
+      inputSchema: {
+        threadId: z.string().min(1),
+        maxMessages: z.number().int().min(1).max(20).default(10),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ threadId, maxMessages }) => {
+      if (env.JARVIS_DEMO_MODE) {
+        const thread = demoThreads[threadId as keyof typeof demoThreads];
+        if (!thread) return textResult({ id: threadId, messages: [] });
+        return textResult({ ...thread, messages: thread.messages.slice(-maxMessages) });
+      }
+
+      const thread = await googleRequest<GmailThread>(
+        `https://gmail.googleapis.com/gmail/v1/users/${GMAIL_USER}/threads/${encodeURIComponent(threadId)}?format=full`,
+      );
+      const messages = (thread.messages ?? []).slice(-maxMessages).map((message) => ({
+        id: message.id,
+        threadId: message.threadId,
+        from: header(message, 'From'),
+        to: header(message, 'To'),
+        subject: header(message, 'Subject'),
+        date: header(message, 'Date'),
+        body: messageBody(message),
+      }));
+      return textResult({ id: thread.id, messages });
     },
   );
 
