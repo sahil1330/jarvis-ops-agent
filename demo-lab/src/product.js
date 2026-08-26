@@ -1,4 +1,4 @@
-const MAX_RESUME_BYTES = 6 * 1024 * 1024;
+const MAX_RESUME_BYTES = 1 * 1024 * 1024;
 
 export function validateResumeUpload({ name, size, mimeType }) {
   if (mimeType !== 'application/pdf') {
