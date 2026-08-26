@@ -11,9 +11,13 @@ loadEnv({ quiet: true });
 
 const optionalString = z.string().optional().transform((value) => value || undefined);
 
+export function normalizeOrchestratorHost(value: string | undefined): string {
+  return value?.trim() || '127.0.0.1';
+}
+
 export const env = z
   .object({
-    ORCHESTRATOR_HOST: z.string().default('127.0.0.1'),
+    ORCHESTRATOR_HOST: z.string().optional().transform(normalizeOrchestratorHost),
     ORCHESTRATOR_PORT: z.coerce.number().int().positive().default(8787),
     CONTROL_CENTER_ORIGIN: z.string().default('http://localhost:5173'),
     TRUEFORGE_BASE_URL: z.url().default('http://localhost:8790'),
