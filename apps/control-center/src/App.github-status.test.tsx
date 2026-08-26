@@ -3,7 +3,8 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
-import { createSession, runTurn } from './lib/api';
+import { createSession, resolveApproval, runTurn } from './lib/api';
+import { persistPausedCheckpoint } from './lib/session-resume';
 
 vi.mock('./lib/api', () => ({
   createSession: vi.fn(),
@@ -25,6 +26,7 @@ describe('App GitHub system feedback', () => {
 
   beforeEach(() => {
     vi.mocked(createSession).mockReset().mockResolvedValue('session-github');
+    vi.mocked(resolveApproval).mockReset();
     vi.mocked(runTurn).mockReset();
     Element.prototype.scrollIntoView = vi.fn();
   });
@@ -96,5 +98,44 @@ describe('App GitHub system feedback', () => {
     const systems = screen.getByRole('complementary', { name: 'Connected systems' });
     const github = within(systems).getByText('GitHub').closest('div');
     expect(within(github as HTMLElement).getByText('Available')).toBeVisible();
+  });
+
+  it('hydrates a restored GitHub failure into app issue state and keeps it through approval resume', async () => {
+    persistPausedCheckpoint({
+      sessionId: 'session-restored',
+      response: 'A verified repair is ready to publish.',
+      approvals: [{
+        threadId: 'main',
+        toolCallId: 'call-publish',
+        toolName: 'publish_verified_fix',
+        arguments: '{"baseSha":"abc"}',
+      }],
+      trace: [{
+        id: 'tool:repo-restored',
+        category: 'tool',
+        title: 'Get Repository Snapshot failed',
+        detail: 'GitHub API 403: restored failure',
+        state: 'error',
+        timestamp: 30,
+      }],
+    });
+
+    vi.mocked(resolveApproval).mockImplementation(async (_sessionId, _decisions, onEvent, _signal, onAccepted) => {
+      onAccepted?.();
+      onEvent({ type: 'status', status: 'done' });
+    });
+
+    render(<App />);
+    await screen.findByText('Approval restored');
+
+    const systems = screen.getByRole('complementary', { name: 'Connected systems' });
+    const github = within(systems).getByText('GitHub').closest('div');
+    expect(within(github as HTMLElement).getByText('Failed')).toBeVisible();
+    expect(document.querySelector('.status-pill')).toHaveClass('has-issues');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve action' }));
+    await waitFor(() => expect(vi.mocked(resolveApproval)).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getAllByText('Completed with issues').length).toBeGreaterThan(0));
+    expect(within(github as HTMLElement).getByText('Failed')).toBeVisible();
   });
 });
