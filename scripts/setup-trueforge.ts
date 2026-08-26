@@ -3,18 +3,21 @@ import { config as loadEnv } from 'dotenv';
 
 loadEnv({ quiet: true });
 
+function requireBearer(name: string, value: string | undefined): string {
+  if (!value || value.length < 32) throw new Error(`${name} must contain at least 32 characters`);
+  return value;
+}
+
 const baseUrl = process.env.TRUEFORGE_BASE_URL ?? 'http://localhost:8790';
 const agentName = process.env.JARVIS_AGENT_NAME ?? 'jarvis-personal-ops';
 const mcpName = process.env.JARVIS_MCP_SERVER_NAME ?? 'jarvis-google-workspace';
 const mcpUrl = process.env.JARVIS_MCP_URL ?? 'http://localhost:8788/mcp';
-const mcpBearerToken = process.env.JARVIS_MCP_BEARER_TOKEN;
+const mcpBearerToken = requireBearer('JARVIS_MCP_BEARER_TOKEN', process.env.JARVIS_MCP_BEARER_TOKEN);
 const githubMcpName = process.env.JARVIS_GITHUB_MCP_SERVER_NAME ?? 'jarvis-github-ops';
 const githubMcpUrl = process.env.JARVIS_GITHUB_MCP_URL ?? 'http://localhost:8789/mcp';
-const githubMcpBearerToken = process.env.JARVIS_GITHUB_MCP_BEARER_TOKEN;
+const githubMcpBearerToken = requireBearer('JARVIS_GITHUB_MCP_BEARER_TOKEN', process.env.JARVIS_GITHUB_MCP_BEARER_TOKEN);
 const model = process.env.TRUEFORGE_MODEL?.trim();
 
-if (!mcpBearerToken || mcpBearerToken.length < 32) throw new Error('JARVIS_MCP_BEARER_TOKEN must contain at least 32 characters');
-if (!githubMcpBearerToken || githubMcpBearerToken.length < 32) throw new Error('JARVIS_GITHUB_MCP_BEARER_TOKEN must contain at least 32 characters');
 if (!model) throw new Error('TRUEFORGE_MODEL must be set to a model already configured in your TrueForge instance');
 
 const client = new TrueForge({
