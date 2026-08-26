@@ -29,3 +29,11 @@ export function githubSystemStatusFromTrace(item: TraceItem): SystemStatus | nul
     detail: snapshot ? 'Repository snapshot available' : 'Verified fix publication completed',
   };
 }
+
+export function latestGithubSystemStatus(trace: TraceItem[]): SystemStatus | null {
+  for (let index = trace.length - 1; index >= 0; index -= 1) {
+    const status = githubSystemStatusFromTrace(trace[index]);
+    if (status) return status;
+  }
+  return null;
+}
