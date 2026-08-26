@@ -2,43 +2,129 @@
 
 ## Objective
 
-The hackathon demo is built around one objective-driven command:
+The hackathon demo is built around one outcome-level command:
 
-> "Jarvis, I have my client demo at 3 PM. Make sure I'm ready."
+> **“Jarvis, I have my client demo at 3 PM. Make sure I’m ready.”**
 
-Jarvis must turn that outcome into observable, evidence-backed work rather than a sequence of user-authored app commands.
+Jarvis must decide which connected systems and evidence are needed. The user should not have to author a tool-by-tool workflow.
 
-## Mission contract
+## Mission stages
 
-1. Find the relevant meeting in Calendar.
-2. Find the relevant client conversation in Gmail.
-3. Read the complete bounded thread when a search result is relevant.
-4. Extract the concrete demo acceptance criteria.
-5. Delegate engineering verification to a separate subagent.
-6. Use an isolated sandbox to reproduce any reported software problem against an exact repository revision.
-7. Do not call a problem fixed until the reproduction and regression suite pass after the patch.
-8. Present evidence and the exact external action before requesting approval.
-9. Publish the verified fix only after TrueForge emits and resolves a human approval checkpoint.
-10. Finish with a concise readiness briefing that separates verified facts, actions taken, and anything still pending.
+### 1. CONTEXT
 
-## Deterministic rehearsal context
+- Read Calendar and identify the relevant client demo/deadline.
+- Report the actual event/time returned by the tool; never invent a meeting.
 
-`JARVIS_DEMO_MODE=true` provides synthetic mission context for local UI and orchestration rehearsal:
+### 2. REQUIREMENTS
 
-- Calendar: **Atlas Product Demo**, starting roughly 90 minutes from process start.
-- Client thread: Ava asks Jarvis to verify a roughly 5 MB PDF resume upload, job recommendations, and analytics events.
-- Build message: the existing suite is green but explicitly does not cover untested file sizes.
+- Search Gmail narrowly for the relevant client conversation.
+- Read the bounded thread when snippets are insufficient.
+- Extract only explicit acceptance criteria.
 
-The synthetic context contains no private user data. It exists to make failure cases and UI development repeatable. The final judged recording must follow the hackathon rules for real tool usage and authorized systems.
+For the controlled live demo, the synthetic-owned client thread asks for:
 
-## Evidence standard
+- roughly 5 MB PDF resume upload support;
+- job recommendations for a TypeScript / Node.js profile;
+- the `resume_uploaded` analytics event.
 
-Jarvis may summarize evidence but must not invent it. Engineering claims require sandbox output tied to an exact repository SHA. A passing pre-existing test suite is not proof that a client-reported edge case works. The engineering agent must create or run a targeted reproduction first.
+### 3. VERIFY
 
-## Safety boundary
+- Call `get_repository_snapshot` before engineering verification.
+- Treat its exact repository, base branch and SHA as the source of truth.
+- Delegate substantial engineering verification to a separate subagent.
+- Use the Daytona sandbox against that exact revision.
+- Run the existing baseline, but do **not** treat a green baseline as proof of an untested client case.
+- Create/run the targeted ~5 MB reproduction first.
+- Observe the failure before editing.
+- Patch only what is required.
+- Rerun the targeted reproduction and the broader regression suite.
 
-Read operations may run autonomously. Publishing code, sending email, or changing calendar state remains approval-gated in TrueForge. Credentials must stay in their connector processes and never enter the browser, model context, voice renderer, or sandbox.
+A fix is verified only when the targeted case fails before the patch, passes after it, and the broader suite still passes.
+
+### 4. ACTION
+
+Only after verification evidence exists:
+
+- show the base SHA, changed paths and verification evidence;
+- propose `publish_verified_fix`;
+- pause at the TrueForge human checkpoint;
+- publish only after an explicit Allow / explicit voice approval;
+- create a branch, commit and PR only — never merge it.
+
+Finish with a concise readiness brief that separates deadline, requirements, verified facts, action result and anything still unverified.
+
+## Controlled repository incident
+
+The submitted `main` branch is healthy. Its demo product supports the client-required file size with:
+
+```js
+const MAX_RESUME_BYTES = 6 * 1024 * 1024;
+```
+
+The live engineering incident exists only on:
+
+```text
+repository: sahil1330/jarvis-ops-agent
+branch: demo/client-regression
+```
+
+That branch tip changes exactly one file (`demo-lab/src/product.js`) and lowers the active limit to 1 MiB. Its ordinary baseline remains green; the missing ~5 MB reproduction must come from the client requirement rather than a pre-authored failing test.
+
+The incident branch is reversible and is not merged into `main`.
+
+## Judged live-integration context
+
+For the recording, use:
+
+```text
+JARVIS_DEMO_MODE=false
+```
+
+Seed a Google account you own with a harmless synthetic Atlas client thread and Calendar event, then use the real Gmail/Calendar APIs against that data. Full setup/reset instructions are in [`live-demo-setup.md`](live-demo-setup.md).
+
+`JARVIS_DEMO_MODE=true` remains useful only for deterministic local UI/orchestration development. Synthetic fixtures must never be presented as a live provider call.
+
+## Preflight invariant
+
+Before a full rehearsal/recording:
+
+```bash
+npm run check
+npm run build
+npm run doctor
+```
+
+Do not continue with a judged “successful” run while doctor reports a blocker. In particular, doctor must confirm the exact allowlisted repository, the `demo/client-regression` base branch, authenticated GitHub MCP access and the isolated 6 MiB → 1 MiB regression.
+
+## Evidence and truthfulness rules
+
+Jarvis may summarize evidence but must not invent it.
+
+- “Client reported” is not the same as “reproduced.”
+- “Existing tests pass” is not the same as “client requirement verified.”
+- “Proposed patch” is not the same as “verified fix.”
+- “Approval requested” is not the same as “external action completed.”
+
+The control center keeps the underlying technical trace visible below its mission-level summary.
+
+## Human-control and reconnect boundary
+
+Read operations may run autonomously. Sending email, moving Calendar events and publishing a verified fix remain approval-gated in TrueForge.
+
+A pending approval checkpoint is saved in tab-scoped `sessionStorage` and can be restored after a refresh in the same tab. This is deliberately narrower than arbitrary active-stream replay: Jarvis does **not** claim to reconstruct missing mid-tool events after an arbitrary disconnect or to resume approvals across devices/tabs.
+
+Explicit voice approval uses the same TrueForge approval path as the UI buttons. Ambiguous phrases are not authorization.
+
+## Credential boundary
+
+Credentials stay in the component that needs them:
+
+- Google OAuth secrets: Google Workspace MCP process;
+- GitHub PAT: GitHub MCP process;
+- OpenAI key: orchestrator;
+- model/MCP credentials: harness;
+- Daytona sandbox: no account/model/MCP credentials.
 
 ## Scope rule
 
-Until the submission is complete, a feature belongs in the hackathon build only if it makes this golden mission more reliable, understandable, safe, or visibly powered by TrueForge.
+Until submission is complete, a feature belongs in the hackathon build only if it makes this golden mission more reliable, understandable, safe, or visibly powered by TrueForge.
