@@ -1,7 +1,16 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
-import { isValidJarvisBranchName } from './github-tools.js';
+import { beforeAll, describe, expect, it } from 'vitest';
+
+let isValidJarvisBranchName: (value: string) => boolean;
+
+beforeAll(async () => {
+  process.env.JARVIS_GITHUB_MCP_BEARER_TOKEN = 'test-bearer-token-000000000000000000000000';
+  process.env.JARVIS_GITHUB_TOKEN = 'github_pat_test_token_000000000000';
+  process.env.JARVIS_GITHUB_REPOSITORY = 'example/demo';
+  process.env.JARVIS_GITHUB_BASE_BRANCH = 'demo-product-main';
+  ({ isValidJarvisBranchName } = await import('./github-tools.js'));
+});
 
 describe('GitHub operations safety contract', () => {
   it('accepts a normal namespaced branch', () => {
