@@ -2,17 +2,17 @@
 
 > A voice-first, approval-gated personal operations agent built on TrueForge for The Agent Harness Hackathon 2026.
 
-Jarvis turns outcome-level requests into observable work across connected systems. The hackathon build is now centered on one golden mission:
+Jarvis turns outcome-level requests into observable work across connected systems. The hackathon build is centered on one golden mission:
 
 > **“Jarvis, I have my client demo at 3 PM. Make sure I’m ready.”**
 
-The current runtime already provides persistent TrueForge sessions, dynamic subagents, MCP tool routing, Daytona sandbox execution, streaming UI events, explicit human approval checkpoints, natural voice output, and bounded explicit memory. See [`docs/golden-mission.md`](docs/golden-mission.md) for the mission and evidence contract.
+The runtime provides persistent TrueForge sessions, dynamic subagents, MCP tool routing, Daytona sandbox execution, streaming UI events, explicit human approval checkpoints, natural voice output, and bounded explicit memory. See [`docs/golden-mission.md`](docs/golden-mission.md) for the mission and evidence contract.
 
 ## Why this is an agent
 
-Jarvis does not require the user to name every application or tool. It can discover relevant calendar context and client communication, delegate independent investigation, use sandboxed code execution when verification is required, and stop before an external side effect until the user approves the exact action.
+Jarvis does not require the user to name every application or tool. It can discover relevant calendar context and client communication, inspect an allowlisted repository, delegate independent investigation, use sandboxed code execution for verification, and stop before an external side effect until the user approves the exact action.
 
-The Realtime voice channel is intentionally not a second autonomous agent. It receives no Gmail, Calendar, memory, sandbox, or approval authority; it only renders natural-language text already emitted by TrueForge.
+The Realtime voice channel is intentionally not a second autonomous agent. It receives no Gmail, Calendar, GitHub, memory, sandbox, or approval authority; it only renders natural-language text already emitted by TrueForge.
 
 ## Repository layout
 
@@ -20,7 +20,7 @@ The Realtime voice channel is intentionally not a second autonomous agent. It re
 apps/
   control-center/       React + Vite voice, mission, trace and approval interface
   orchestrator/         TrueForge SDK streaming + server-side audio bridge
-  google-workspace-mcp/ Gmail, Calendar and persistent-memory MCP server
+  google-workspace-mcp/ Google MCP plus isolated GitHub MCP entrypoint
 scripts/
   setup-trueforge.ts    Idempotent connector and agent registration
   doctor.ts             Read-only live-demo preflight
@@ -40,6 +40,7 @@ docs/
 - A Daytona API key for sandbox execution
 - A Google Cloud project with Gmail API and Google Calendar API enabled
 - Google OAuth credentials and a refresh token for an account you own
+- A fine-grained GitHub token restricted to the configured demo repository, with the repository permissions needed to read contents and create branches/commits/pull requests
 
 ## Fresh local setup
 
@@ -56,18 +57,28 @@ Before running setup, configure **all** required values in `.env`:
 2. Copy that model’s exact FQN into `TRUEFORGE_MODEL`. Jarvis deliberately does not guess a provider/model name.
 3. Set `OPENAI_API_KEY` for voice.
 4. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REFRESH_TOKEN` for the Google account you own.
-5. Generate `JARVIS_MCP_BEARER_TOKEN` with `openssl rand -hex 32`.
-6. Configure Daytona under **TrueForge → Settings → Sandbox providers**.
+5. Generate two independent connector bearer tokens:
+
+```bash
+openssl rand -hex 32   # JARVIS_MCP_BEARER_TOKEN
+openssl rand -hex 32   # JARVIS_GITHUB_MCP_BEARER_TOKEN
+```
+
+6. Set `JARVIS_GITHUB_TOKEN`, `JARVIS_GITHUB_REPOSITORY`, and `JARVIS_GITHUB_BASE_BRANCH`. Use a token restricted to that repository; the hackathon connector does not accept a repository name from the model.
+7. Configure Daytona under **TrueForge → Settings → Sandbox providers**.
 
 Gmail always addresses the mailbox authenticated by the OAuth token through `users/me`; there is no runtime `GOOGLE_USER_EMAIL` setting.
 
-Start the Google Workspace MCP:
+Start both MCP services in separate terminals:
 
 ```bash
 npm run dev:mcp
+npm run dev:github
 ```
 
-Register/update Jarvis in TrueForge:
+The Google MCP defaults to `127.0.0.1:8788`; the isolated GitHub MCP defaults to `127.0.0.1:8789`. Each requires its own bearer credential.
+
+Register/update both connectors and Jarvis in TrueForge:
 
 ```bash
 npm run setup:trueforge
@@ -98,7 +109,20 @@ https://www.googleapis.com/auth/gmail.send
 https://www.googleapis.com/auth/calendar.events
 ```
 
-Keep development OAuth credentials private and never commit refresh tokens, API keys, inbox data, calendar data, or local memory.
+Keep development OAuth credentials private and never commit refresh tokens, API keys, inbox data, calendar data, GitHub tokens, or local memory.
+
+## GitHub publication boundary
+
+The GitHub MCP is purpose-built for the golden mission:
+
+- `get_repository_snapshot` reads the configured base branch and returns its exact SHA.
+- `publish_verified_fix` can only publish bounded file changes under `demo-lab/`.
+- The base SHA is checked before object creation and again immediately before a branch becomes visible.
+- A pull-request creation failure cleans up the branch created by that attempt.
+- The tool creates a branch, commit, and pull request only; it cannot merge the PR.
+- `publish_verified_fix` is named in TrueForge `requireApprovalForTools`.
+
+The GitHub PAT stays in the GitHub MCP process. It is never sent to Daytona, the browser, the voice renderer, or model context.
 
 ## Voice interaction
 
@@ -121,12 +145,12 @@ Ordinary conversation is not silently persisted. Credentials and obvious secrets
 ## Safety model
 
 - Read tools may run autonomously.
-- Gmail and Calendar writes are named in TrueForge `requireApprovalForTools`.
-- Approval decisions return to TrueForge as `user.tool_approval`; the UI does not call Google writes directly.
-- The Google refresh token remains in the MCP process and never enters the sandbox or browser.
+- Gmail/Calendar writes and GitHub publication are named in TrueForge `requireApprovalForTools`.
+- Approval decisions return to TrueForge as `user.tool_approval`; the UI does not call external writes directly.
+- Google and GitHub credentials remain in their MCP processes and never enter the sandbox or browser.
 - The OpenAI API key remains in the orchestrator.
 - The Realtime voice renderer has no tool authority.
-- MCP requests require a bearer credential and bind to loopback by default.
+- MCP requests require bearer credentials and bind to loopback by default.
 - The orchestrator also binds to loopback by default; public/multi-user deployment is intentionally outside the current hackathon boundary.
 - A denied action is terminal for that tool call.
 
@@ -139,7 +163,7 @@ npm run check
 npm run build
 ```
 
-The suite covers tool authentication, Gmail addressing, tool failures, approval reconstruction, stream isolation, voice lifecycle, VAD, persistent memory, accessibility, latency telemetry and setup scripts.
+The suite covers tool authentication, Gmail addressing/thread handling, tool failures, GitHub publication safeguards, approval reconstruction, stream isolation, voice lifecycle, VAD, persistent memory, accessibility, latency telemetry and setup scripts.
 
 ## Qodo Code Review Evidence
 
@@ -161,6 +185,7 @@ Every substantive feature goes through a pull request and Qodo review before mer
 - [PR #16 — latency telemetry](https://github.com/sahil1330/jarvis-ops-agent/pull/16)
 - [PR #17 — agent-loop efficiency](https://github.com/sahil1330/jarvis-ops-agent/pull/17)
 - [PR #18 — runtime, Gmail identity and memory hardening](https://github.com/sahil1330/jarvis-ops-agent/pull/18)
+- [PR #19 — objective-driven golden mission foundation](https://github.com/sahil1330/jarvis-ops-agent/pull/19)
 
 Qodo findings are fixed in their PRs and follow-up review is requested before merge.
 
