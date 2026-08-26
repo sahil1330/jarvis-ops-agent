@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { MemoryStore } from './memory.js';
+import { MemoryStore, writeMemoryFileAtomically } from './memory.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -60,5 +60,18 @@ describe('MemoryStore', () => {
       'preference.two',
       'profile.three',
     ]);
+  });
+
+  it('removes a generated temp file when the atomic rename fails', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'jarvis-memory-failure-'));
+    temporaryDirectories.push(directory);
+    const destination = join(directory, 'memory.json');
+    await mkdir(destination);
+    await writeFile(join(destination, 'keep.txt'), 'force rename failure');
+
+    await expect(writeMemoryFileAtomically(destination, { version: 1, memories: [] })).rejects.toThrow();
+
+    const entries = await readdir(directory);
+    expect(entries.filter((entry) => entry.startsWith('memory.json.') && entry.endsWith('.tmp'))).toEqual([]);
   });
 });
