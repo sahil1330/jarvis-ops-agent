@@ -12,10 +12,15 @@ type GithubHealth = {
 
 type GithubRef = { object?: { sha?: unknown } };
 type GithubContent = { content?: unknown; encoding?: unknown; sha?: unknown };
+export type GithubCommitShape = {
+  sha?: unknown;
+  parents?: Array<{ sha?: unknown }>;
+  files?: Array<{ filename?: unknown; status?: unknown }>;
+};
 
 const timeoutMs = 8_000;
 const EXPECTED_DEMO_BRANCH = 'demo/client-regression';
-const EXPECTED_REGRESSION = 'const MAX_RESUME_BYTES = 1 * 1024 * 1024;';
+const DEMO_PRODUCT_PATH = 'demo-lab/src/product.js';
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost']);
 
 function elapsed(start: number): number {
@@ -30,6 +35,35 @@ function result(name: string, status: DoctorStatus, detail: string, fix?: string
     ...(fix ? { fix } : {}),
     ...(start !== undefined ? { durationMs: elapsed(start) } : {}),
   };
+}
+
+export function formatUrlHost(host: string): string {
+  return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+}
+
+function encodeRefPath(ref: string): string {
+  return ref.split('/').map(encodeURIComponent).join('/');
+}
+
+export function resumeLimitMiB(source: string): number | null {
+  const matches = [...source.matchAll(/^const MAX_RESUME_BYTES = (\d+) \* 1024 \* 1024;\s*$/gm)];
+  if (matches.length !== 1) return null;
+  const value = Number(matches[0]?.[1]);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+export function regressionCommitProblem(commit: GithubCommitShape): string | null {
+  if (!Array.isArray(commit.parents) || commit.parents.length !== 1 || typeof commit.parents[0]?.sha !== 'string') {
+    return 'Controlled regression tip must have exactly one parent commit.';
+  }
+  if (!Array.isArray(commit.files) || commit.files.length !== 1) {
+    return 'Controlled regression commit must change exactly one file.';
+  }
+  const file = commit.files[0];
+  if (file?.filename !== DEMO_PRODUCT_PATH || file.status !== 'modified') {
+    return `Controlled regression commit must only modify ${DEMO_PRODUCT_PATH}.`;
+  }
+  return null;
 }
 
 export function githubConfigChecks(env: Env): DoctorResult[] {
@@ -93,11 +127,12 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Re
 async function checkGithubMcp(env: Env): Promise<DoctorResult> {
   const host = env.GITHUB_MCP_HOST?.trim() || '127.0.0.1';
   const port = env.GITHUB_MCP_PORT?.trim() || '8789';
-  const url = `http://${host}:${port}/healthz`;
+  const root = `http://${formatUrlHost(host)}:${port}`;
+  const healthUrl = `${root}/healthz`;
   const start = performance.now();
   try {
-    const response = await fetchWithTimeout(url);
-    if (!response.ok) return result('GitHub MCP · health', 'fail', `HTTP ${response.status} from ${url}.`, 'Start npm run dev:github-mcp.', start);
+    const response = await fetchWithTimeout(healthUrl);
+    if (!response.ok) return result('GitHub MCP · health', 'fail', `HTTP ${response.status} from ${healthUrl}.`, 'Start npm run dev:github.', start);
     const payload = await response.json() as GithubHealth;
     const repository = env.JARVIS_GITHUB_REPOSITORY?.trim();
     const branch = env.JARVIS_GITHUB_BASE_BRANCH?.trim();
@@ -110,9 +145,23 @@ async function checkGithubMcp(env: Env): Promise<DoctorResult> {
     if (branch && payload.baseBranch !== branch) {
       return result('GitHub MCP · health', 'fail', `MCP base branch does not match JARVIS_GITHUB_BASE_BRANCH (${branch}).`, 'Restart the GitHub MCP after fixing .env.', start);
     }
-    return result('GitHub MCP · health', 'pass', `GitHub operations MCP reachable · ${String(payload.repository)} @ ${String(payload.baseBranch)}.`, undefined, start);
+
+    // GET /mcp is intentionally rejected with 405 after bearer authentication. A stale/wrong
+    // bearer is rejected earlier with 401, so this probes the actual credential boundary without
+    // invoking a tool or creating any external side effect.
+    const authProbe = await fetchWithTimeout(`${root}/mcp`, {
+      headers: { authorization: `Bearer ${env.JARVIS_GITHUB_MCP_BEARER_TOKEN ?? ''}` },
+    });
+    if (authProbe.status === 401 || authProbe.status === 403) {
+      return result('GitHub MCP · auth', 'fail', `Configured MCP bearer was rejected with HTTP ${authProbe.status}.`, 'Restart the GitHub MCP with the same JARVIS_GITHUB_MCP_BEARER_TOKEN used by TrueForge.', start);
+    }
+    if (authProbe.status !== 405) {
+      return result('GitHub MCP · auth', 'fail', `Authenticated MCP probe returned unexpected HTTP ${authProbe.status}.`, 'Confirm the GitHub MCP /mcp route is the expected stateless endpoint.', start);
+    }
+
+    return result('GitHub MCP · health', 'pass', `GitHub operations MCP reachable and bearer accepted · ${String(payload.repository)} @ ${String(payload.baseBranch)}.`, undefined, start);
   } catch (reason) {
-    return result('GitHub MCP · health', 'fail', redactError(reason), `Start npm run dev:github-mcp and confirm ${url} is reachable.`, start);
+    return result('GitHub MCP · health', 'fail', redactError(reason), `Start npm run dev:github and confirm ${healthUrl} is reachable.`, start);
   }
 }
 
@@ -127,6 +176,14 @@ async function githubGet(env: Env, path: string): Promise<Response> {
   });
 }
 
+async function githubFileAtRevision(env: Env, repository: string, path: string, revision: string): Promise<string> {
+  const response = await githubGet(env, `/repos/${repository}/contents/${path}?ref=${encodeURIComponent(revision)}`);
+  if (!response.ok) throw new Error(`GitHub fixture lookup returned HTTP ${response.status}: ${(await response.text()).slice(0, 400)}`);
+  const payload = await response.json() as GithubContent;
+  if (payload.encoding !== 'base64' || typeof payload.content !== 'string') throw new Error('GitHub returned an unsupported demo fixture payload.');
+  return Buffer.from(payload.content.replace(/\n/g, ''), 'base64').toString('utf8');
+}
+
 async function checkGoldenRegression(env: Env): Promise<DoctorResult> {
   const repository = env.JARVIS_GITHUB_REPOSITORY?.trim();
   const branch = env.JARVIS_GITHUB_BASE_BRANCH?.trim();
@@ -136,7 +193,7 @@ async function checkGoldenRegression(env: Env): Promise<DoctorResult> {
 
   const start = performance.now();
   try {
-    const refResponse = await githubGet(env, `/repos/${repository}/git/ref/heads/${encodeURIComponent(branch)}`);
+    const refResponse = await githubGet(env, `/repos/${repository}/git/ref/heads/${encodeRefPath(branch)}`);
     if (!refResponse.ok) {
       throw new Error(`GitHub branch lookup returned HTTP ${refResponse.status}: ${(await refResponse.text()).slice(0, 400)}`);
     }
@@ -144,19 +201,30 @@ async function checkGoldenRegression(env: Env): Promise<DoctorResult> {
     const sha = typeof ref.object?.sha === 'string' ? ref.object.sha : '';
     if (!sha) throw new Error('GitHub branch lookup returned no commit SHA.');
 
-    const contentResponse = await githubGet(env, `/repos/${repository}/contents/demo-lab/src/product.js?ref=${encodeURIComponent(branch)}`);
-    if (!contentResponse.ok) {
-      throw new Error(`GitHub demo fixture lookup returned HTTP ${contentResponse.status}: ${(await contentResponse.text()).slice(0, 400)}`);
+    const commitResponse = await githubGet(env, `/repos/${repository}/commits/${sha}`);
+    if (!commitResponse.ok) throw new Error(`GitHub commit lookup returned HTTP ${commitResponse.status}: ${(await commitResponse.text()).slice(0, 400)}`);
+    const commit = await commitResponse.json() as GithubCommitShape;
+    const invariantProblem = regressionCommitProblem(commit);
+    if (invariantProblem) {
+      return result('GitHub · golden regression', 'fail', invariantProblem, 'Reset demo/client-regression to a single commit that only lowers the demo upload ceiling.', start);
     }
-    const payload = await contentResponse.json() as GithubContent;
-    if (payload.encoding !== 'base64' || typeof payload.content !== 'string') throw new Error('GitHub returned an unsupported demo fixture payload.');
-    const source = Buffer.from(payload.content.replace(/\n/g, ''), 'base64').toString('utf8');
-    if (!source.includes(EXPECTED_REGRESSION)) {
+    const parentSha = commit.parents?.[0]?.sha;
+    if (typeof parentSha !== 'string') throw new Error('Controlled regression commit returned no parent SHA.');
+
+    // Both versions are fetched by immutable SHAs so the success message and validated content
+    // cannot diverge if the branch moves during the doctor run.
+    const [regressionSource, healthySource] = await Promise.all([
+      githubFileAtRevision(env, repository, DEMO_PRODUCT_PATH, sha),
+      githubFileAtRevision(env, repository, DEMO_PRODUCT_PATH, parentSha),
+    ]);
+    const regressionLimit = resumeLimitMiB(regressionSource);
+    const healthyLimit = resumeLimitMiB(healthySource);
+    if (regressionLimit !== 1 || healthyLimit !== 6) {
       return result(
         'GitHub · golden regression',
         'fail',
-        `${branch} exists but does not contain the expected 1 MiB client regression.`,
-        'Reset the controlled demo branch so only MAX_RESUME_BYTES is lowered from 6 MiB to 1 MiB.',
+        `Controlled regression limits are not the expected healthy 6 MiB → regression 1 MiB transition (found ${String(healthyLimit)} → ${String(regressionLimit)}).`,
+        'Reset the controlled demo branch so its only change lowers MAX_RESUME_BYTES from 6 MiB to 1 MiB.',
         start,
       );
     }
@@ -164,7 +232,7 @@ async function checkGoldenRegression(env: Env): Promise<DoctorResult> {
     return result(
       'GitHub · golden regression',
       'pass',
-      `${repository} · ${branch} @ ${sha.slice(0, 12)} · expected 1 MiB upload regression present.`,
+      `${repository} · ${branch} @ ${sha.slice(0, 12)} · isolated 6 MiB → 1 MiB upload regression verified.`,
       undefined,
       start,
     );
@@ -175,8 +243,7 @@ async function checkGoldenRegression(env: Env): Promise<DoctorResult> {
 
 export async function runGithubDoctor(env: Env = process.env): Promise<DoctorResult[]> {
   const checks = githubConfigChecks(env);
-  const missingRequired = checks.some((item) => item.status === 'fail' && item.name.startsWith('Config · JARVIS_GITHUB_'));
-  if (missingRequired) return checks;
+  if (checks.some((item) => item.status === 'fail')) return checks;
   const [mcp, regression] = await Promise.all([checkGithubMcp(env), checkGoldenRegression(env)]);
   return [...checks, mcp, regression];
 }
