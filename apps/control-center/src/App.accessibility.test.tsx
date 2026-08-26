@@ -28,7 +28,7 @@ describe('App accessibility', () => {
       'Control+Enter Meta+Enter',
     );
     expect(screen.getAllByText('Available', { selector: '.system-status span' })).toHaveLength(1);
-    expect(screen.getAllByText('Not checked', { selector: '.system-status span' })).toHaveLength(3);
+    expect(screen.getAllByText('Not checked', { selector: '.system-status span' })).toHaveLength(4);
 
     const results = await axe.run(container, {
       rules: { 'color-contrast': { enabled: false } },
