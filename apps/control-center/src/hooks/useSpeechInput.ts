@@ -34,7 +34,11 @@ function preferredMimeType(): string {
   return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) ?? '';
 }
 
-export function useSpeechInput(onTranscript: (text: string) => void, neuralAvailable = false) {
+export function useSpeechInput(
+  onTranscript: (text: string, contextKey: string) => void,
+  neuralAvailable = false,
+  contextKey = '',
+) {
   const [listening, setListening] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [error, setError] = useState('');
@@ -81,11 +85,57 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
     setListening(false);
   }, [cleanupVad]);
 
+  const cancel = useCallback(() => {
+    recordingGenerationRef.current += 1;
+
+    const recognition = recognitionRef.current;
+    recognitionRef.current = null;
+    if (recognition) {
+      recognition.onresult = null;
+      recognition.onend = null;
+      recognition.onerror = null;
+      try { recognition.stop(); } catch { /* recognition may already be stopped */ }
+    }
+
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    if (recorder) {
+      recorder.ondataavailable = null;
+      recorder.onerror = null;
+      recorder.onstop = null;
+      if (recorder.state !== 'inactive') {
+        try { recorder.stop(); } catch { /* recorder may already be stopping */ }
+      }
+    }
+
+    abortRef.current?.abort();
+    abortRef.current = null;
+    chunksRef.current = [];
+    cleanupVad();
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    setListening(false);
+    setTranscribing(false);
+  }, [cleanupVad]);
+
   useEffect(() => () => {
     recordingGenerationRef.current += 1;
-    recognitionRef.current?.stop();
+    const recognition = recognitionRef.current;
+    if (recognition) {
+      recognition.onresult = null;
+      recognition.onend = null;
+      recognition.onerror = null;
+      try { recognition.stop(); } catch { /* already stopped */ }
+    }
     const recorder = recorderRef.current;
-    if (recorder && recorder.state !== 'inactive') recorder.stop();
+    if (recorder) {
+      recorder.ondataavailable = null;
+      recorder.onerror = null;
+      recorder.onstop = null;
+      if (recorder.state !== 'inactive') {
+        try { recorder.stop(); } catch { /* already stopped */ }
+      }
+    }
     abortRef.current?.abort();
     cleanupVad();
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -94,24 +144,31 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
   const startBrowserRecognition = useCallback(() => {
     const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
     if (!Recognition) return;
+    const transcriptContext = contextKey;
     const recognition = new Recognition();
     recognition.continuous = false;
     recognition.interimResults = false;
     recognition.lang = 'en-IN';
-    recognition.onresult = (event) => onTranscript(event.results[0]?.[0]?.transcript ?? '');
+    recognition.onresult = (event) => {
+      if (recognitionRef.current !== recognition) return;
+      onTranscript(event.results[0]?.[0]?.transcript ?? '', transcriptContext);
+    };
     recognition.onend = () => {
+      if (recognitionRef.current !== recognition) return;
       setListening(false);
       recognitionRef.current = null;
     };
     recognition.onerror = () => {
+      if (recognitionRef.current !== recognition) return;
       setError('Browser speech recognition failed. You can type the command instead.');
-      recognition.onend?.();
+      setListening(false);
+      recognitionRef.current = null;
     };
     recognitionRef.current = recognition;
     setError('');
     setListening(true);
     recognition.start();
-  }, [onTranscript]);
+  }, [contextKey, onTranscript]);
 
   const startVoiceEndpointing = useCallback(async (
     stream: MediaStream,
@@ -178,6 +235,10 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
   }, []);
 
   const startNeuralRecording = useCallback(async () => {
+    const transcriptContext = contextKey;
+    // Reserve a generation before awaiting browser permission. cancel() and unmount both advance
+    // this counter, so a late getUserMedia continuation cannot resurrect a cancelled microphone.
+    const requestGeneration = ++recordingGenerationRef.current;
     try {
       setError('');
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -187,9 +248,14 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
           autoGainControl: true,
         },
       });
+      if (recordingGenerationRef.current !== requestGeneration) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
       const mimeType = preferredMimeType();
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      const recordingGeneration = ++recordingGenerationRef.current;
+      const recordingGeneration = requestGeneration;
       streamRef.current = stream;
       recorderRef.current = recorder;
       chunksRef.current = [];
@@ -197,29 +263,34 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
         if (event.data.size > 0) chunksRef.current.push(event.data);
       };
       recorder.onerror = () => {
+        if (recordingGenerationRef.current !== recordingGeneration) return;
         setError('Microphone recording failed.');
         cleanupMedia();
       };
       recorder.onstop = () => {
+        if (recorderRef.current !== recorder || recordingGenerationRef.current !== recordingGeneration) return;
         const audio = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
         cleanupMedia();
         if (audio.size === 0) return;
         const controller = new AbortController();
         abortRef.current = controller;
+        const transcriptionGeneration = recordingGenerationRef.current;
         setTranscribing(true);
         const sttStartedAt = performance.now();
         void transcribeAudio(audio, controller.signal)
           .then((text) => {
+            if (abortRef.current !== controller || recordingGenerationRef.current !== transcriptionGeneration) return;
             recordSttLatency(performance.now() - sttStartedAt);
-            onTranscript(text);
+            onTranscript(text, transcriptContext);
           })
           .catch((reason: unknown) => {
             if (reason instanceof DOMException && reason.name === 'AbortError') return;
+            if (abortRef.current !== controller || recordingGenerationRef.current !== transcriptionGeneration) return;
             setError('Neural transcription failed. Browser speech or typing is still available.');
           })
           .finally(() => {
             if (abortRef.current === controller) abortRef.current = null;
-            setTranscribing(false);
+            if (recordingGenerationRef.current === transcriptionGeneration) setTranscribing(false);
           });
       };
       setListening(true);
@@ -233,11 +304,14 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
         // Recording still works with manual stop + the hard cap if endpointing is unavailable.
       });
     } catch {
+      // A reset/approval decision may have happened while the browser permission prompt was open.
+      // In that case cancellation wins and must not fall back into a new recognition session.
+      if (recordingGenerationRef.current !== requestGeneration) return;
       cleanupMedia();
       if (browserSupported) startBrowserRecognition();
       else setError('Microphone access was not available.');
     }
-  }, [browserSupported, cleanupMedia, onTranscript, startBrowserRecognition, startVoiceEndpointing]);
+  }, [browserSupported, cleanupMedia, contextKey, onTranscript, startBrowserRecognition, startVoiceEndpointing]);
 
   const toggle = useCallback(() => {
     if (recorderRef.current && listening) {
@@ -261,5 +335,6 @@ export function useSpeechInput(onTranscript: (text: string) => void, neuralAvail
     mode: neuralSupported ? 'neural' as const : browserSupported ? 'browser' as const : 'none' as const,
     autoStopsOnSilence: neuralSupported && typeof AudioContext !== 'undefined',
     toggle,
+    cancel,
   };
 }

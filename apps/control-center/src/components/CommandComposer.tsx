@@ -6,19 +6,35 @@ import { getHealth } from '../lib/api';
 type Props = {
   command: string;
   disabled: boolean;
+  approvalMode?: boolean;
+  speechCancelToken?: number;
+  voiceContextKey?: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  onVoiceTranscript?: (value: string, contextKey: string) => boolean;
 };
 
 const suggestions = [
-  'I’m running one hour late. Check what this affects and handle it.',
+  'I have my client demo at 3 PM. Make sure I’m ready.',
   'Remember that I prefer meetings after 11 AM.',
   'Find urgent unread emails and prepare the replies I need to send.',
 ];
 
-export function CommandComposer({ command, disabled, onChange, onSubmit }: Props) {
+export function CommandComposer({
+  command,
+  disabled,
+  approvalMode = false,
+  speechCancelToken = 0,
+  voiceContextKey = '',
+  onChange,
+  onSubmit,
+  onVoiceTranscript,
+}: Props) {
   const [neuralStt, setNeuralStt] = useState(false);
-  const speech = useSpeechInput(onChange, neuralStt);
+  const speech = useSpeechInput((text, contextKey) => {
+    if (onVoiceTranscript?.(text, contextKey)) return;
+    onChange(text);
+  }, neuralStt, voiceContextKey);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -28,6 +44,10 @@ export function CommandComposer({ command, disabled, onChange, onSubmit }: Props
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    if (speechCancelToken > 0) speech.cancel();
+  }, [speech.cancel, speechCancelToken]);
+
   const speechStatus = speech.listening
     ? speech.autoStopsOnSilence
       ? 'Listening… I’ll stop when you pause'
@@ -36,23 +56,29 @@ export function CommandComposer({ command, disabled, onChange, onSubmit }: Props
       ? 'Transcribing with neural STT…'
       : speech.error
         ? speech.error
-        : speech.mode === 'neural'
-          ? speech.autoStopsOnSilence
-            ? 'Neural voice input ready · auto-stop on silence'
-            : 'Neural voice input ready'
-          : 'Ctrl/⌘ Enter to run';
+        : approvalMode
+          ? 'Say “Approve it” or “Deny it” · buttons remain available'
+          : speech.mode === 'neural'
+            ? speech.autoStopsOnSilence
+              ? 'Neural voice input ready · auto-stop on silence'
+              : 'Neural voice input ready'
+            : 'Ctrl/⌘ Enter to run';
 
   return (
     <section className="command-panel" aria-labelledby="command-title">
       <div className="eyebrow"><ShieldCheck size={14} /> Approval-gated agent</div>
-      <h1 id="command-title">What should I handle?</h1>
-      <p className="lead" id="command-description">Speak or type one command. Jarvis investigates, remembers explicit preferences and pauses before anything leaves your account.</p>
+      <h1 id="command-title">{approvalMode ? 'Your approval is required' : 'What should I handle?'}</h1>
+      <p className="lead" id="command-description">
+        {approvalMode
+          ? 'Review the checkpoint, then use the approval buttons or an explicit voice decision. No new command starts while this checkpoint is pending.'
+          : 'Speak or type one objective. Jarvis investigates, verifies and pauses before external side effects.'}
+      </p>
 
       <form
         className={`composer ${speech.listening ? 'is-listening' : ''}`}
         onSubmit={(event) => {
           event.preventDefault();
-          onSubmit();
+          if (!approvalMode) onSubmit();
         }}
       >
         <label className="sr-only" htmlFor="jarvis-command">Command for Jarvis</label>
@@ -61,11 +87,11 @@ export function CommandComposer({ command, disabled, onChange, onSubmit }: Props
           value={command}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') onSubmit();
+            if (!approvalMode && (event.metaKey || event.ctrlKey) && event.key === 'Enter') onSubmit();
           }}
-          placeholder="Tell Jarvis what changed…"
+          placeholder={approvalMode ? 'Approval pending — use voice or the checkpoint buttons' : 'Tell Jarvis the outcome you need…'}
           rows={4}
-          disabled={disabled || speech.transcribing}
+          disabled={disabled || approvalMode || speech.transcribing}
           aria-describedby="command-description command-shortcut"
           aria-keyshortcuts="Control+Enter Meta+Enter"
         />
@@ -75,8 +101,8 @@ export function CommandComposer({ command, disabled, onChange, onSubmit }: Props
             className="icon-button"
             onClick={speech.toggle}
             disabled={!speech.supported || disabled || speech.transcribing}
-            aria-label={speech.listening ? 'Stop listening and transcribe' : 'Use voice input'}
-            title={speech.mode === 'neural'
+            aria-label={speech.listening ? 'Stop listening and transcribe' : approvalMode ? 'Use voice approval' : 'Use voice input'}
+            title={approvalMode ? 'Voice approval: say Approve it or Deny it' : speech.mode === 'neural'
               ? speech.autoStopsOnSilence
                 ? 'Neural voice input · stops automatically after you pause'
                 : 'Neural voice input'
@@ -90,20 +116,22 @@ export function CommandComposer({ command, disabled, onChange, onSubmit }: Props
           <button
             type="submit"
             className="run-button"
-            disabled={disabled || speech.transcribing || command.trim().length < 2}
+            disabled={disabled || approvalMode || speech.transcribing || command.trim().length < 2}
           >
             Run command <ArrowUp size={16} />
           </button>
         </div>
       </form>
 
-      <div className="suggestions" aria-label="Suggested commands">
-        {suggestions.map((suggestion, index) => (
-          <button type="button" key={suggestion} onClick={() => onChange(suggestion)} disabled={disabled}>
-            <span aria-hidden="true">0{index + 1}</span>{suggestion}
-          </button>
-        ))}
-      </div>
+      {!approvalMode && (
+        <div className="suggestions" aria-label="Suggested commands">
+          {suggestions.map((suggestion, index) => (
+            <button type="button" key={suggestion} onClick={() => onChange(suggestion)} disabled={disabled}>
+              <span aria-hidden="true">0{index + 1}</span>{suggestion}
+            </button>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
