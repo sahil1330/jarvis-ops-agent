@@ -36,6 +36,7 @@ async function githubRequest<T>(path: string, init: RequestInit = {}): Promise<T
     const body = (await response.text()).slice(0, MAX_ERROR_CHARS);
     throw new Error(`GitHub API ${response.status}: ${body || response.statusText}`);
   }
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
@@ -49,6 +50,30 @@ function assertSafePath(path: string): void {
   }
 }
 
+export function isValidJarvisBranchName(value: string): boolean {
+  if (!/^jarvis\/[a-z0-9][a-z0-9._/-]{2,80}$/.test(value)) return false;
+  if (value.includes('..') || value.includes('//') || value.endsWith('/') || value.endsWith('.')) return false;
+  const components = value.split('/');
+  return components.every((component) => (
+    component.length > 0 &&
+    !component.startsWith('.') &&
+    !component.endsWith('.lock')
+  ));
+}
+
+async function currentBaseSha(): Promise<string> {
+  const ref = await githubRequest<RefResponse>(
+    `${repoPath()}/git/ref/heads/${encodeURIComponent(githubEnv.JARVIS_GITHUB_BASE_BRANCH)}`,
+  );
+  return ref.object.sha;
+}
+
+function assertCurrentBase(expected: string, current: string): void {
+  if (current !== expected) {
+    throw new Error(`Base revision changed: expected ${expected}, current ${current}`);
+  }
+}
+
 export function registerGithubOpsTools(server: McpServer): void {
   server.registerTool(
     'get_repository_snapshot',
@@ -59,10 +84,8 @@ export function registerGithubOpsTools(server: McpServer): void {
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     },
     async () => {
-      const ref = await githubRequest<RefResponse>(
-        `${repoPath()}/git/ref/heads/${encodeURIComponent(githubEnv.JARVIS_GITHUB_BASE_BRANCH)}`,
-      );
-      const commit = await githubRequest<CommitResponse>(`${repoPath()}/commits/${ref.object.sha}`);
+      const baseSha = await currentBaseSha();
+      const commit = await githubRequest<CommitResponse>(`${repoPath()}/commits/${baseSha}`);
       return textResult({
         repository: githubEnv.JARVIS_GITHUB_REPOSITORY,
         baseBranch: githubEnv.JARVIS_GITHUB_BASE_BRANCH,
@@ -80,7 +103,7 @@ export function registerGithubOpsTools(server: McpServer): void {
       description: 'Create a branch, commit bounded demo-lab file changes, and open a pull request only when the supplied base SHA is still current. This external side effect must be approval-gated by TrueForge.',
       inputSchema: {
         baseSha: z.string().regex(/^[0-9a-f]{40}$/i),
-        branchName: z.string().regex(/^jarvis\/[a-z0-9][a-z0-9._/-]{2,80}$/),
+        branchName: z.string().min(1).max(88).refine(isValidJarvisBranchName, 'Invalid Git branch name in the jarvis/ namespace'),
         files: z.array(z.object({
           path: z.string().min(1).max(240),
           content: z.string().max(100_000),
@@ -97,13 +120,7 @@ export function registerGithubOpsTools(server: McpServer): void {
         throw new Error('Duplicate file paths are not allowed');
       }
 
-      const ref = await githubRequest<RefResponse>(
-        `${repoPath()}/git/ref/heads/${encodeURIComponent(githubEnv.JARVIS_GITHUB_BASE_BRANCH)}`,
-      );
-      if (ref.object.sha !== baseSha) {
-        throw new Error(`Base revision changed: expected ${baseSha}, current ${ref.object.sha}`);
-      }
-
+      assertCurrentBase(baseSha, await currentBaseSha());
       const baseCommit = await githubRequest<CommitResponse>(`${repoPath()}/git/commits/${baseSha}`);
       const blobs = await Promise.all(files.map(async (file) => ({
         path: file.path,
@@ -128,19 +145,32 @@ export function registerGithubOpsTools(server: McpServer): void {
           parents: [baseSha],
         }),
       });
-      await githubRequest(`${repoPath()}/git/refs`, {
+
+      // Object creation above is not externally visible. Recheck immediately before exposing
+      // the candidate commit through a branch so a moved base aborts publication safely.
+      assertCurrentBase(baseSha, await currentBaseSha());
+      await githubRequest<void>(`${repoPath()}/git/refs`, {
         method: 'POST',
         body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha: commit.sha }),
       });
-      const pull = await githubRequest<PullResponse>(`${repoPath()}/pulls`, {
-        method: 'POST',
-        body: JSON.stringify({
-          title: prTitle,
-          head: branchName,
-          base: githubEnv.JARVIS_GITHUB_BASE_BRANCH,
-          body: `${prBody}\n\n## Jarvis verification evidence\n\n${verificationSummary}`,
-        }),
-      });
+
+      let pull: PullResponse;
+      try {
+        pull = await githubRequest<PullResponse>(`${repoPath()}/pulls`, {
+          method: 'POST',
+          body: JSON.stringify({
+            title: prTitle,
+            head: branchName,
+            base: githubEnv.JARVIS_GITHUB_BASE_BRANCH,
+            body: `${prBody}\n\n## Jarvis verification evidence\n\n${verificationSummary}`,
+          }),
+        });
+      } catch (error) {
+        await githubRequest<void>(`${repoPath()}/git/refs/heads/${encodeURIComponent(branchName)}`, {
+          method: 'DELETE',
+        }).catch(() => undefined);
+        throw error;
+      }
 
       return textResult({
         published: true,
