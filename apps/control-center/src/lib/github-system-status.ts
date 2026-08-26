@@ -31,17 +31,21 @@ export function githubSystemStatusFromTrace(item: TraceItem): SystemStatus | nul
 }
 
 export function latestGithubSystemStatus(trace: TraceItem[]): SystemStatus | null {
-  let latest: { timestamp: number; index: number; status: SystemStatus } | null = null;
-  trace.forEach((item, index) => {
+  let latestStatus: SystemStatus | null = null;
+  let latestTimestamp = Number.NEGATIVE_INFINITY;
+  let latestIndex = -1;
+
+  for (let index = 0; index < trace.length; index += 1) {
+    const item = trace[index];
+    if (!item) continue;
     const status = githubSystemStatusFromTrace(item);
-    if (!status) return;
-    if (
-      !latest ||
-      item.timestamp > latest.timestamp ||
-      (item.timestamp === latest.timestamp && index > latest.index)
-    ) {
-      latest = { timestamp: item.timestamp, index, status };
+    if (!status) continue;
+    if (item.timestamp > latestTimestamp || (item.timestamp === latestTimestamp && index > latestIndex)) {
+      latestStatus = status;
+      latestTimestamp = item.timestamp;
+      latestIndex = index;
     }
-  });
-  return latest?.status ?? null;
+  }
+
+  return latestStatus;
 }
