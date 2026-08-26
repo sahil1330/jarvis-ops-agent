@@ -11,7 +11,7 @@ export type MemoryRecord = {
   updatedAt: string;
 };
 
-type MemoryFile = { version: 1; memories: MemoryRecord[] };
+export type MemoryFile = { version: 1; memories: MemoryRecord[] };
 
 const pathQueues = new Map<string, Promise<unknown>>();
 
