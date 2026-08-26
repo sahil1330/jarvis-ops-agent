@@ -1,8 +1,6 @@
 import { Box, CalendarDays, GitBranch, Mail, Radio, ShieldCheck } from 'lucide-react';
 import { useLatencyTelemetry } from '../hooks/useLatencyTelemetry';
-import { latestGithubSystemStatus } from '../lib/github-system-status';
 import { formatLatency } from '../lib/latency';
-import { readPausedCheckpoint } from '../lib/session-resume';
 import type { Health, SystemState, SystemStatus, SystemStatuses } from '../types';
 
 type Props = {
@@ -31,10 +29,6 @@ function StateIndicator({ status }: { status: SystemStatus }) {
 
 export function SystemRail({ health, systems }: Props) {
   const latency = useLatencyTelemetry();
-  const restoredGithub = systems.github.state === 'unknown'
-    ? latestGithubSystemStatus(readPausedCheckpoint()?.trace ?? [])
-    : null;
-  const githubStatus = restoredGithub ?? systems.github;
   const hasLatency = (
     latency.sttMs !== undefined ||
     latency.firstAgentMs !== undefined ||
@@ -53,7 +47,7 @@ export function SystemRail({ health, systems }: Props) {
         <div><span className="system-icon"><ShieldCheck size={16} /></span><p><strong>TrueForge</strong><small>Agent harness</small></p><StateIndicator status={systems.harness} /></div>
         <div><span className="system-icon"><Mail size={16} /></span><p><strong>Gmail</strong><small>MCP connector</small></p><StateIndicator status={systems.gmail} /></div>
         <div><span className="system-icon"><CalendarDays size={16} /></span><p><strong>Calendar</strong><small>MCP connector</small></p><StateIndicator status={systems.calendar} /></div>
-        <div><span className="system-icon"><GitBranch size={16} /></span><p><strong>GitHub</strong><small>Verified-fix MCP</small></p><StateIndicator status={githubStatus} /></div>
+        <div><span className="system-icon"><GitBranch size={16} /></span><p><strong>GitHub</strong><small>Verified-fix MCP</small></p><StateIndicator status={systems.github} /></div>
         <div><span className="system-icon"><Box size={16} /></span><p><strong>Sandbox</strong><small>Isolated compute</small></p><StateIndicator status={systems.sandbox} /></div>
       </div>
       <div className="safety-note">
