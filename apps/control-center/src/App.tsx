@@ -6,6 +6,7 @@ import { ExecutionTrace } from './components/ExecutionTrace';
 import { OutcomePanel } from './components/OutcomePanel';
 import { SystemRail } from './components/SystemRail';
 import { createSession, getHealth, resolveApproval, runTurn } from './lib/api';
+import { githubSystemStatusFromTrace } from './lib/github-system-status';
 import {
   finishApprovalResumeTiming,
   finishToolTiming,
@@ -34,6 +35,7 @@ const INITIAL_SYSTEMS: SystemStatuses = {
   harness: { state: 'checking', detail: 'Checking TrueForge' },
   gmail: { state: 'unknown', detail: 'Not checked this session' },
   calendar: { state: 'unknown', detail: 'Not checked this session' },
+  github: { state: 'unknown', detail: 'Not checked this session' },
   sandbox: { state: 'unknown', detail: 'Not used this session' },
 };
 
@@ -188,8 +190,10 @@ export default function App() {
         if (event.state === 'active') startToolTiming(event.id, event.title);
         if (event.state === 'done' || event.state === 'error') finishToolTiming(event.id);
       }
+      const nextItem = { ...event, timestamp: Date.now() };
+      const githubStatus = githubSystemStatusFromTrace(nextItem);
+      if (githubStatus) setSystems((current) => ({ ...current, github: githubStatus }));
       setTrace((current) => {
-        const nextItem = { ...event, timestamp: Date.now() };
         const existingIndex = current.findIndex((item) => item.id === event.id);
         if (existingIndex === -1) return [...current, nextItem].slice(-24);
         const next = [...current];
@@ -414,7 +418,7 @@ export default function App() {
     });
   }, [health, healthPhase]);
 
-  const hasToolIssues = systems.gmail.state === 'error' || systems.calendar.state === 'error' || systems.sandbox.state === 'error' || notices.some((notice) => notice.severity === 'error');
+  const hasToolIssues = systems.gmail.state === 'error' || systems.calendar.state === 'error' || systems.github.state === 'error' || systems.sandbox.state === 'error' || notices.some((notice) => notice.severity === 'error');
 
   const statusLabel = (() => {
     if (healthPhase === 'loading') return 'Checking harness…';
