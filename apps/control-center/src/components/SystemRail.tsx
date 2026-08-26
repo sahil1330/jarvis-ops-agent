@@ -1,4 +1,4 @@
-import { Box, CalendarDays, Mail, Radio, ShieldCheck } from 'lucide-react';
+import { Box, CalendarDays, GitBranch, Mail, Radio, ShieldCheck } from 'lucide-react';
 import { useLatencyTelemetry } from '../hooks/useLatencyTelemetry';
 import { formatLatency } from '../lib/latency';
 import type { Health, SystemState, SystemStatus, SystemStatuses } from '../types';
@@ -47,6 +47,7 @@ export function SystemRail({ health, systems }: Props) {
         <div><span className="system-icon"><ShieldCheck size={16} /></span><p><strong>TrueForge</strong><small>Agent harness</small></p><StateIndicator status={systems.harness} /></div>
         <div><span className="system-icon"><Mail size={16} /></span><p><strong>Gmail</strong><small>MCP connector</small></p><StateIndicator status={systems.gmail} /></div>
         <div><span className="system-icon"><CalendarDays size={16} /></span><p><strong>Calendar</strong><small>MCP connector</small></p><StateIndicator status={systems.calendar} /></div>
+        <div><span className="system-icon"><GitBranch size={16} /></span><p><strong>GitHub</strong><small>Verified-fix MCP</small></p><StateIndicator status={systems.github} /></div>
         <div><span className="system-icon"><Box size={16} /></span><p><strong>Sandbox</strong><small>Isolated compute</small></p><StateIndicator status={systems.sandbox} /></div>
       </div>
       <div className="safety-note">
