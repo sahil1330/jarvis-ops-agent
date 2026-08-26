@@ -8,10 +8,11 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -n ui,api,mcp -c cyan,magenta,yellow \"npm:dev -w @jarvis/control-center\" \"npm:dev -w @jarvis/orchestrator\" \"npm:dev -w @jarvis/google-workspace-mcp\"",
+    "dev": "concurrently -n ui,api,mcp,github -c cyan,magenta,yellow,green \"npm:dev -w @jarvis/control-center\" \"npm:dev -w @jarvis/orchestrator\" \"npm:dev -w @jarvis/google-workspace-mcp\" \"npm:dev:github -w @jarvis/google-workspace-mcp\"",
     "dev:ui": "npm run dev -w @jarvis/control-center",
     "dev:api": "npm run dev -w @jarvis/orchestrator",
     "dev:mcp": "npm run dev -w @jarvis/google-workspace-mcp",
+    "dev:github": "npm run dev:github -w @jarvis/google-workspace-mcp",
     "build": "node scripts/run-existing-workspaces.mjs build",
     "check": "npm run typecheck:scripts && npm run test:scripts && node scripts/run-existing-workspaces.mjs typecheck && node scripts/run-existing-workspaces.mjs test",
     "test": "node scripts/run-existing-workspaces.mjs test",

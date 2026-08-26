@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:github": "tsx watch src/github-index.ts",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --pretty false",
     "test": "vitest run"
