@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { githubConfigChecks } from './doctor-github.js';
+import { formatUrlHost, githubConfigChecks, regressionCommitProblem, resumeLimitMiB } from './doctor-github.js';
 
 function baseEnv() {
   return {
@@ -12,7 +12,7 @@ function baseEnv() {
   };
 }
 
-describe('Jarvis GitHub doctor config', () => {
+describe('Jarvis GitHub doctor', () => {
   it('accepts the isolated golden-mission connector configuration', () => {
     const checks = githubConfigChecks(baseEnv());
     assert.equal(checks.some((item) => item.status === 'fail'), false);
@@ -33,10 +33,36 @@ describe('Jarvis GitHub doctor config', () => {
     assert.match(exposure?.fix ?? '', /127\.0\.0\.1/);
   });
 
+  it('formats an accepted IPv6 loopback as a valid URL host', () => {
+    assert.equal(formatUrlHost('::1'), '[::1]');
+    assert.equal(formatUrlHost('127.0.0.1'), '127.0.0.1');
+  });
+
   it('requires an independent strong GitHub MCP bearer token', () => {
     const checks = githubConfigChecks({ ...baseEnv(), JARVIS_GITHUB_MCP_BEARER_TOKEN: 'short' });
     const bearer = checks.find((item) => item.name === 'Config · GitHub MCP bearer strength');
     assert.equal(bearer?.status, 'fail');
     assert.match(bearer?.fix ?? '', /openssl rand -hex 32/);
+  });
+
+  it('parses exactly one active upload-limit declaration instead of comments or duplicates', () => {
+    assert.equal(resumeLimitMiB('const MAX_RESUME_BYTES = 1 * 1024 * 1024;\n'), 1);
+    assert.equal(resumeLimitMiB('// const MAX_RESUME_BYTES = 1 * 1024 * 1024;\nconst MAX_RESUME_BYTES = 6 * 1024 * 1024;\n'), 6);
+    assert.equal(resumeLimitMiB('const MAX_RESUME_BYTES = 1 * 1024 * 1024;\nconst MAX_RESUME_BYTES = 6 * 1024 * 1024;\n'), null);
+  });
+
+  it('requires the regression tip commit to modify only the demo product implementation', () => {
+    assert.equal(regressionCommitProblem({
+      parents: [{ sha: 'a'.repeat(40) }],
+      files: [{ filename: 'demo-lab/src/product.js', status: 'modified' }],
+    }), null);
+
+    assert.match(regressionCommitProblem({
+      parents: [{ sha: 'a'.repeat(40) }],
+      files: [
+        { filename: 'demo-lab/src/product.js', status: 'modified' },
+        { filename: 'README.md', status: 'modified' },
+      ],
+    }) ?? '', /exactly one file/);
   });
 });
