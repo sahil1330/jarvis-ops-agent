@@ -19,6 +19,7 @@ export type GithubCommitShape = {
 };
 
 const timeoutMs = 8_000;
+const EXPECTED_REPOSITORY = 'sahil1330/jarvis-ops-agent';
 const EXPECTED_DEMO_BRANCH = 'demo/client-regression';
 const DEMO_PRODUCT_PATH = 'demo-lab/src/product.js';
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost']);
@@ -82,6 +83,18 @@ export function githubConfigChecks(env: Env): DoctorResult[] {
       configured ? 'pass' : 'fail',
       configured ? 'Configured' : 'Missing',
       configured ? undefined : `Set ${name} in the root .env file.`,
+    ));
+  }
+
+  const repository = env.JARVIS_GITHUB_REPOSITORY?.trim();
+  if (repository) {
+    checks.push(result(
+      'Config · Golden repository',
+      repository === EXPECTED_REPOSITORY ? 'pass' : 'fail',
+      repository === EXPECTED_REPOSITORY
+        ? `GitHub connector is allowlisted to ${EXPECTED_REPOSITORY}.`
+        : `GitHub connector targets ${repository}; the golden mission is allowlisted only to ${EXPECTED_REPOSITORY}.`,
+      repository === EXPECTED_REPOSITORY ? undefined : `Set JARVIS_GITHUB_REPOSITORY=${EXPECTED_REPOSITORY}.`,
     ));
   }
 
