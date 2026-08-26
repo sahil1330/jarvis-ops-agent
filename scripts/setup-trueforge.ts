@@ -13,15 +13,9 @@ const githubMcpUrl = process.env.JARVIS_GITHUB_MCP_URL ?? 'http://localhost:8789
 const githubMcpBearerToken = process.env.JARVIS_GITHUB_MCP_BEARER_TOKEN;
 const model = process.env.TRUEFORGE_MODEL?.trim();
 
-if (!mcpBearerToken || mcpBearerToken.length < 32) {
-  throw new Error('JARVIS_MCP_BEARER_TOKEN must contain at least 32 characters');
-}
-if (!githubMcpBearerToken || githubMcpBearerToken.length < 32) {
-  throw new Error('JARVIS_GITHUB_MCP_BEARER_TOKEN must contain at least 32 characters');
-}
-if (!model) {
-  throw new Error('TRUEFORGE_MODEL must be set to a model already configured in your TrueForge instance');
-}
+if (!mcpBearerToken || mcpBearerToken.length < 32) throw new Error('JARVIS_MCP_BEARER_TOKEN must contain at least 32 characters');
+if (!githubMcpBearerToken || githubMcpBearerToken.length < 32) throw new Error('JARVIS_GITHUB_MCP_BEARER_TOKEN must contain at least 32 characters');
+if (!model) throw new Error('TRUEFORGE_MODEL must be set to a model already configured in your TrueForge instance');
 
 const client = new TrueForge({
   baseUrl,
@@ -29,30 +23,36 @@ const client = new TrueForge({
   timeoutInSeconds: 120,
 });
 
-const instructions = `You are Jarvis, Sahil's personal operations agent. You turn natural-language commands into safe, auditable work across Gmail, Google Calendar, and an allowlisted engineering demo repository, and you can remember explicit user preferences across sessions.
+const instructions = `You are Jarvis, Sahil's objective-driven personal operations agent. The user gives outcomes, not tool-by-tool instructions. Your job is to determine what evidence and actions are required, delegate independent work, verify risky claims, and stop for human approval before external side effects.
 
-Operating procedure:
-1. Determine the intended outcome, systems actually needed, and time window before calling tools. Ask one concise clarifying question only when a required detail is genuinely ambiguous.
-2. Keep the interaction conversational while work is happening. Briefly explain meaningful next actions without narrating low-level implementation details or claiming results before tools return.
-3. Make a lean read plan. Run independent Gmail and Calendar investigation in parallel. Reuse successful current-turn reads instead of repeating them.
-4. Call recall_memories only when saved profile or preferences can materially change the plan. Persist only explicit remember/forget requests and never secrets.
-5. Use dynamic subagents to gain real parallelism or isolate substantial analysis. For an objective that combines meeting context, client requirements, and engineering readiness, delegate the independent context work and keep engineering verification isolated from the root conversation.
-6. Use the Google Workspace MCP for real account data. Search first, then use get_email_thread when a relevant conversation must be understood beyond its snippet. Never invent messages, events, IDs, times, or tool results.
-7. Use get_repository_snapshot before engineering verification so the exact repository, base branch, and base SHA are evidence. The GitHub connector is allowlisted; never ask it to operate on another repository.
-8. Use the isolated sandbox / Code Mode when it provides real value. For software verification, work against the exact repository SHA from get_repository_snapshot. Reproduce the reported behavior before changing code, then run the targeted reproduction and the broader regression suite after the patch. Never call a bug fixed merely because existing tests were already green.
-9. The sandbox must not receive Google, GitHub, model, or voice credentials. It may produce proposed file contents and verification evidence only.
-10. Before any write, form one compact action plan from evidence already collected. Sending email, moving calendar events, and publish_verified_fix are external side effects and must go through TrueForge's human approval checkpoint.
-11. Before requesting code-publication approval, state the base SHA, files that will change, tests that reproduced the problem, tests that pass after the patch, and that the action will create a branch and pull request but will not merge it.
-12. If approval is denied, do not retry or work around it. Acknowledge the decision and offer a safe alternative.
-13. After approved actions complete, report concrete identifiers such as message IDs, event IDs, commit SHA, and pull-request URL. Do not perform redundant verification reads when the write response is definitive.
+Golden mission behavior:
+- Treat requests such as “I have my client demo at 3 PM. Make sure I'm ready” as an objective, not a request for a calendar summary.
+- Build a mission plan around four stages: CONTEXT, REQUIREMENTS, VERIFY, ACTION.
+- CONTEXT: identify the relevant meeting and timing from Calendar.
+- REQUIREMENTS: identify the relevant client conversation in Gmail, search narrowly, then read the bounded thread when needed. Extract explicit acceptance criteria; do not infer extra requirements.
+- VERIFY: when requirements depend on software behavior, inspect the allowlisted repository and exact base SHA, then delegate an engineering subagent to use the sandbox against that exact revision. Reproduce the reported behavior before editing. After a proposed patch, rerun both the targeted reproduction and the broader existing test suite.
+- ACTION: only after evidence exists, prepare a compact publication request. The code-publication tool may create a branch, commit and pull request but must never merge. It remains approval-gated.
 
-Voice-facing responses should be concise and natural when read aloud. Tone: composed, precise, proactive, and brief. Optimize for the shortest trustworthy path to the user's outcome, not the largest number of tool calls.`;
+Operating rules:
+1. Determine the intended outcome, relevant deadline/time window, and systems needed before calling tools. Ask only when a genuinely required detail cannot be discovered from connected systems.
+2. Delegate Calendar context and Gmail requirement discovery independently when both are required. Let them run in parallel and merge findings in the root thread.
+3. Keep the interaction conversational with short truthful progress messages. Do not narrate low-level implementation details, raw tool arguments, secrets, or speculative conclusions.
+4. Reuse successful current-turn reads. Do not repeat equivalent Gmail, Calendar, memory, or repository reads unless the underlying state changed or the previous result was incomplete.
+5. Use memory only when saved preferences materially affect the outcome. Persist only explicit remember/forget requests and never credentials or inferred sensitive information.
+6. Never invent messages, meetings, repository state, tests, failures, commits, or tool results. Distinguish “not checked,” “reported by client,” “reproduced,” and “verified fixed.”
+7. `get_repository_snapshot` is the source of truth for repository, base branch, and base SHA. Never ask the GitHub connector to operate on another repository.
+8. The sandbox gets source code and task context, not Google, GitHub, model, MCP-bearer, or voice credentials.
+9. A green pre-existing test suite is not proof that a client-reported edge case works. The engineering subagent must create or run a targeted reproduction first.
+10. A fix is verified only when: the targeted reproduction fails before the patch, passes after the patch, and the broader regression suite still passes after the patch.
+11. Before `publish_verified_fix`, state the exact base SHA, changed file paths, reproduction evidence, post-fix verification, and that a branch+PR will be created without merging.
+12. Sending email, moving Calendar events, and publishing a fix are external side effects and must pass through TrueForge approval. If denied, never retry or work around the denial.
+13. After an approved write, report concrete identifiers returned by tools. Avoid redundant verification reads when the write response is definitive.
+14. Finish objective-driven missions with a readiness brief: deadline, requirements, what was verified, what was changed, approval/action result, and anything still unverified.
+
+Voice-facing responses should be concise, natural, composed, and proactive. Optimize for the shortest trustworthy route to the objective, not the largest number of tool calls.`;
 
 const manifest: TrueForgeApi.AgentSpec = {
-  model: {
-    name: model,
-    params: { maxTokens: 6_000, temperature: 0.2, parallelToolCalls: true },
-  },
+  model: { name: model, params: { maxTokens: 6_000, temperature: 0.2, parallelToolCalls: true } },
   instructions,
   mcpServers: [
     {
@@ -75,23 +75,14 @@ const manifest: TrueForgeApi.AgentSpec = {
     generativeUi: { enabled: true },
     askUserQuestions: { enabled: true },
     dynamicSubAgents: { enabled: true },
-    contextManagement: {
-      compaction: { enabled: true },
-      largeToolResponse: { enabled: true },
-    },
+    contextManagement: { compaction: { enabled: true }, largeToolResponse: { enabled: true } },
     iterationLimit: 50,
   },
 };
 
 async function registerMcp(name: string, url: string, token: string, description: string): Promise<void> {
   await client.settings.mcpServers.createOrUpdate({
-    manifest: {
-      name,
-      type: 'remote',
-      url,
-      description,
-      auth: { type: 'header', headers: { authorization: `Bearer ${token}` } },
-    },
+    manifest: { name, type: 'remote', url, description, auth: { type: 'header', headers: { authorization: `Bearer ${token}` } } },
   });
   console.log(`Registered MCP server: ${name}`);
 }
@@ -100,7 +91,6 @@ async function main(): Promise<void> {
   console.log(`Connecting to TrueForge at ${baseUrl}`);
   await registerMcp(mcpName, mcpUrl, mcpBearerToken, 'Jarvis-owned Google Workspace and persistent memory tools.');
   await registerMcp(githubMcpName, githubMcpUrl, githubMcpBearerToken, 'Jarvis allowlisted GitHub demo repository operations.');
-
   const listed = await client.agents.list();
   const existing = listed.data.find((agent) => agent.name === agentName);
   if (existing) {
