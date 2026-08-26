@@ -1,0 +1,103 @@
+.mission-progress {
+  margin: 0 0 14px;
+  padding: 14px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.mission-progress-heading,
+.technical-trace-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mission-progress-heading > span,
+.technical-trace-label > span:first-child {
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  opacity: 0.62;
+}
+
+.mission-progress-heading strong {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.mission-progress ol {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mission-stage {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  padding: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9px;
+}
+
+.mission-stage-marker {
+  grid-row: 1 / span 2;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  opacity: 0.5;
+}
+
+.stage-active .mission-stage-marker { opacity: 1; }
+.stage-done .mission-stage-marker { opacity: 0.9; }
+.stage-error .mission-stage-marker { opacity: 1; }
+
+.mission-stage-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.mission-stage-copy strong { font-size: 0.78rem; }
+.mission-stage-copy small {
+  overflow: hidden;
+  margin-top: 2px;
+  font-size: 0.68rem;
+  opacity: 0.58;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mission-stage-state {
+  grid-column: 2;
+  margin-top: 5px;
+  font-size: 0.63rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.5;
+}
+
+.stage-active .mission-stage-state,
+.stage-error .mission-stage-state { opacity: 0.9; }
+
+.technical-trace-label {
+  margin: 2px 2px 8px;
+}
+
+.technical-trace-label > span:last-child {
+  font-size: 0.68rem;
+  opacity: 0.45;
+}
+
+@media (max-width: 760px) {
+  .mission-progress ol { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
