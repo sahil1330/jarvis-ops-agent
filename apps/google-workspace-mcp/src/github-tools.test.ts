@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 let gitCommitTreeSha: (commit: { sha: string; tree: { sha: string } }) => string;
+let githubHeadFilter: (headBranch?: string) => string | undefined;
 let isValidJarvisBranchName: (value: string) => boolean;
 
 beforeAll(async () => {
@@ -11,6 +12,7 @@ beforeAll(async () => {
   process.env.JARVIS_GITHUB_REPOSITORY = 'example/demo';
   process.env.JARVIS_GITHUB_BASE_BRANCH = 'demo-product-main';
   ({ gitCommitTreeSha, isValidJarvisBranchName } = await import('./github-tools.js'));
+  ({ githubHeadFilter } = await import('./github-permission-tools.js'));
 });
 
 describe('GitHub operations safety contract', () => {
@@ -49,6 +51,13 @@ describe('GitHub operations safety contract', () => {
     expect(source.match(/assertCurrentBase\(baseSha, await currentBaseSha\(\)\)/g)).toHaveLength(2);
     expect(source).toContain("method: 'DELETE'");
     expect(source).toContain("'publish_verified_fix'");
+  });
+
+  it('qualifies same-repo head branches for GitHub list filters', () => {
+    expect(githubHeadFilter()).toBeUndefined();
+    expect(githubHeadFilter('jarvis/fix-resume-upload')).toBe('example:jarvis/fix-resume-upload');
+    expect(githubHeadFilter('fork-owner:feature/from-fork')).toBe('fork-owner:feature/from-fork');
+    expect(() => githubHeadFilter('owner:')).toThrow('GitHub head filters must use owner:branch format');
   });
 
   it('registers permission-aligned reads with explicit output contracts', async () => {

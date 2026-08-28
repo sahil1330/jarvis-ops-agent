@@ -261,7 +261,6 @@ export function OutcomePanel({
         {response && (
           <div className="agent-response">
             <div className="response-label"><i aria-hidden="true" /> JARVIS RESPONSE</div>
-            <span className="sr-only">Jarvis response: {response}</span>
             <MarkdownMessage
               content={revealedResponse}
               streaming={revealedResponse.length < response.length}

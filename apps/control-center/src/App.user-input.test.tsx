@@ -101,7 +101,7 @@ describe('App TrueForge user-input checkpoint', () => {
       expect.any(Function),
     ));
     expect(await screen.findByRole('heading', { name: 'Task complete' })).toBeVisible();
-    expect(screen.getByText(/Jarvis response: I will continue with a generic checklist/i)).toBeInTheDocument();
+    expect(await screen.findByText(/I will continue with a generic checklist/i, {}, { timeout: 8_000 })).toBeVisible();
   });
 
   it('keeps a second TrueForge question visible after the first answer resumes', async () => {

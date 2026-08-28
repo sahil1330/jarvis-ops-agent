@@ -258,6 +258,20 @@ type RepositoryContentApi = {
   html_url: string | null;
 };
 
+export function githubHeadFilter(headBranch?: string): string | undefined {
+  if (!headBranch) return undefined;
+  const separator = headBranch.indexOf(':');
+  if (separator !== -1) {
+    const owner = headBranch.slice(0, separator);
+    const ref = headBranch.slice(separator + 1);
+    if (!owner || !ref) {
+      throw new Error('GitHub head filters must use owner:branch format');
+    }
+    return `${owner}:${ref}`;
+  }
+  return `${githubEnv.JARVIS_GITHUB_REPOSITORY.split('/')[0]}:${headBranch}`;
+}
+
 function queryString(values: Record<string, string | number | boolean | undefined>): string {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(values)) {
@@ -437,7 +451,7 @@ export function registerGithubPermissionTools(server: McpServer): void {
     'list_pull_requests',
     {
       title: 'List pull requests',
-      description: 'List pull requests from the fixed repository using the authenticated GitHub API. Use this for open or remaining PR status instead of public web search.',
+      description: 'List pull requests from the fixed repository using the authenticated GitHub API. Use this for open or remaining PR status instead of public web search. headBranch may be a same-repo branch name or an owner:branch filter for fork heads.',
       inputSchema: {
         state: z.enum(['open', 'closed', 'all']).default('open'),
         baseBranch: z.string().min(1).max(255).optional(),
@@ -462,7 +476,7 @@ export function registerGithubPermissionTools(server: McpServer): void {
       const pulls = await githubRequest<PullRequestApi[]>(`${repoPath()}/pulls${queryString({
         state,
         base: baseBranch,
-        head: headBranch,
+        head: githubHeadFilter(headBranch),
         sort,
         direction,
         page,

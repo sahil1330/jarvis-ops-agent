@@ -51,7 +51,7 @@ describe('App live feedback', () => {
     const failure = await screen.findByRole('alert');
     expect(failure).toHaveTextContent('Gmail search failed');
     expect(failure).toHaveTextContent('invalid_grant');
-    expect(screen.getByText(/Jarvis response: I could not read Gmail/i)).toBeInTheDocument();
+    expect(await screen.findByText(/I could not read Gmail/i, {}, { timeout: 8_000 })).toBeVisible();
     expect(screen.queryByRole('log')).not.toBeInTheDocument();
     (screen.getByRole('complementary', { name: 'Connected systems' }).closest('details') as HTMLDetailsElement).open = true;
     expect(screen.getByText('Failed', { selector: '.system-status span' })).toBeVisible();

@@ -7,7 +7,7 @@ type Props = {
 
 export function MarkdownMessage({ content, streaming = false }: Props) {
   return (
-    <div className={`markdown-message${streaming ? ' is-streaming' : ''}`} aria-hidden="true">
+    <div className={`markdown-message${streaming ? ' is-streaming' : ''}`}>
       <ReactMarkdown
         skipHtml
         disallowedElements={['img']}
