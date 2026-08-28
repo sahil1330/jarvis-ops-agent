@@ -10,7 +10,8 @@ type RefResponse = { object: { sha: string } };
 type CommitResponse = { sha: string; commit: { message: string; tree: { sha: string } } };
 type BlobResponse = { sha: string };
 type TreeResponse = { sha: string };
-type GitCommitResponse = { sha: string };
+type GitCommitResponse = { sha: string; tree: { sha: string } };
+type CreatedGitCommitResponse = { sha: string };
 type PullResponse = { number: number; html_url: string };
 
 function textResult(value: unknown) {
@@ -59,6 +60,12 @@ export function isValidJarvisBranchName(value: string): boolean {
     !component.startsWith('.') &&
     !component.endsWith('.lock')
   ));
+}
+
+export function gitCommitTreeSha(commit: GitCommitResponse): string {
+  const treeSha = commit?.tree?.sha;
+  if (!treeSha) throw new Error('GitHub Git commit response did not include a tree SHA');
+  return treeSha;
 }
 
 async function currentBaseSha(): Promise<string> {
@@ -121,7 +128,7 @@ export function registerGithubOpsTools(server: McpServer): void {
       }
 
       assertCurrentBase(baseSha, await currentBaseSha());
-      const baseCommit = await githubRequest<CommitResponse>(`${repoPath()}/git/commits/${baseSha}`);
+      const baseCommit = await githubRequest<GitCommitResponse>(`${repoPath()}/git/commits/${baseSha}`);
       const blobs = await Promise.all(files.map(async (file) => ({
         path: file.path,
         blob: await githubRequest<BlobResponse>(`${repoPath()}/git/blobs`, {
@@ -133,11 +140,11 @@ export function registerGithubOpsTools(server: McpServer): void {
       const tree = await githubRequest<TreeResponse>(`${repoPath()}/git/trees`, {
         method: 'POST',
         body: JSON.stringify({
-          base_tree: baseCommit.commit.tree.sha,
+          base_tree: gitCommitTreeSha(baseCommit),
           tree: blobs.map(({ path, blob }) => ({ path, mode: '100644', type: 'blob', sha: blob.sha })),
         }),
       });
-      const commit = await githubRequest<GitCommitResponse>(`${repoPath()}/git/commits`, {
+      const commit = await githubRequest<CreatedGitCommitResponse>(`${repoPath()}/git/commits`, {
         method: 'POST',
         body: JSON.stringify({
           message: `fix(demo): ${prTitle}`,

@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 
+let gitCommitTreeSha: (commit: { sha: string; tree: { sha: string } }) => string;
 let isValidJarvisBranchName: (value: string) => boolean;
 
 beforeAll(async () => {
@@ -9,10 +10,23 @@ beforeAll(async () => {
   process.env.JARVIS_GITHUB_TOKEN = 'github_pat_test_token_000000000000';
   process.env.JARVIS_GITHUB_REPOSITORY = 'example/demo';
   process.env.JARVIS_GITHUB_BASE_BRANCH = 'demo-product-main';
-  ({ isValidJarvisBranchName } = await import('./github-tools.js'));
+  ({ gitCommitTreeSha, isValidJarvisBranchName } = await import('./github-tools.js'));
 });
 
 describe('GitHub operations safety contract', () => {
+  it('reads the base tree from the Git Data commit response shape', () => {
+    expect(gitCommitTreeSha({
+      sha: '1'.repeat(40),
+      tree: { sha: '2'.repeat(40) },
+    })).toBe('2'.repeat(40));
+  });
+
+  it('reports a malformed Git Data commit response clearly', () => {
+    expect(() => gitCommitTreeSha({ sha: '1'.repeat(40) } as never)).toThrow(
+      'GitHub Git commit response did not include a tree SHA',
+    );
+  });
+
   it('accepts a normal namespaced branch', () => {
     expect(isValidJarvisBranchName('jarvis/fix-resume-upload')).toBe(true);
   });
