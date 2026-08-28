@@ -9,6 +9,13 @@ test('accepts a normal PDF resume', () => {
   );
 });
 
+test('accepts an Atlas demo PDF resume around 5 MiB', () => {
+  assert.deepEqual(
+    validateResumeUpload({ name: 'atlas-candidate.pdf', size: 5 * 1024 * 1024, mimeType: 'application/pdf' }),
+    { ok: true, status: 200 },
+  );
+});
+
 test('rejects a PDF beyond the product upload ceiling', () => {
   assert.equal(
     validateResumeUpload({ name: 'resume.pdf', size: 7 * 1024 * 1024, mimeType: 'application/pdf' }).status,
