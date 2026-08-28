@@ -15,5 +15,12 @@ test('golden mission requires reproduction before a verified fix', async () => {
 
 test('publication remains approval gated', async () => {
   const source = await readFile(setupPath, 'utf8');
-  assert.match(source, /requireApprovalForTools: \['publish_verified_fix'\]/);
+  const sharedWriteTools = source.match(/const githubWriteTools:[^=]+?=\s*\[([\s\S]*?)\];/);
+  if (sharedWriteTools) {
+    assert.match(sharedWriteTools[1] ?? '', /'publish_verified_fix'/);
+    assert.match(source, /requireApprovalForTools:\s*githubWriteTools/);
+    return;
+  }
+
+  assert.match(source, /requireApprovalForTools:\s*\['publish_verified_fix'\]/);
 });
