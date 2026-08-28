@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, RotateCcw } from 'lucide-react';
+import { Activity, Cable, ChevronDown, RotateCcw } from 'lucide-react';
 import { BrandMark } from './components/BrandMark';
-import { CommandComposer } from './components/CommandComposer';
+import { CommandComposer, type CommandComposerHandle } from './components/CommandComposer';
 import { ExecutionTrace } from './components/ExecutionTrace';
 import { OutcomePanel } from './components/OutcomePanel';
 import { SystemRail } from './components/SystemRail';
-import { createSession, getHealth, resolveApproval, runTurn } from './lib/api';
+import { createSession, getHealth, resolveApproval, resolveToolResponse, runTurn } from './lib/api';
 import { githubSystemStatusFromTrace, latestGithubSystemStatus } from './lib/github-system-status';
 import {
   finishApprovalResumeTiming,
@@ -27,9 +27,18 @@ import {
   readSessionId,
 } from './lib/session-resume';
 import { voiceApprovalDecision } from './lib/voice-approval';
-import type { AgentPhase, ApprovalCall, Health, HealthPhase, OperationNotice, ProgressNarration, StreamEvent, SystemStatuses, TraceItem } from './types';
+import { inputAnswerNarration, voiceInputAnswer } from './lib/voice-checkpoint';
+import type { AgentPhase, ApprovalCall, CheckpointVoiceState, Health, HealthPhase, OperationNotice, ProgressNarration, StreamEvent, SystemStatuses, TraceItem, UserInputRequest } from './types';
 
 const MAX_RESPONSE_CHARACTERS = 100_000;
+
+const INITIAL_CHECKPOINT_VOICE: CheckpointVoiceState = {
+  supported: false,
+  listening: false,
+  transcribing: false,
+  autoStopsOnSilence: false,
+  error: '',
+};
 
 const INITIAL_SYSTEMS: SystemStatuses = {
   harness: { state: 'checking', detail: 'Checking TrueForge' },
@@ -55,15 +64,28 @@ function isAbortError(reason: unknown): boolean {
 }
 
 function approvalKey(calls: ApprovalCall[]): string {
-  return calls
+  const key = calls
     .map((call) => `${call.threadId}:${call.toolCallId}`)
     .sort()
     .join('|');
+  return key ? `approval:${key}` : '';
 }
 
-function approvalVoiceContext(state: ApprovalRuntimeState): string {
+function inputRequestKey(requests: UserInputRequest[]): string {
+  const key = requests
+    .map((request) => `${request.threadId}:${request.toolCallId}`)
+    .sort()
+    .join('|');
+  return key ? `input:${key}` : '';
+}
+
+function checkpointKey(approvals: ApprovalCall[], inputRequests: UserInputRequest[]): string {
+  return approvalKey(approvals) || inputRequestKey(inputRequests);
+}
+
+function checkpointVoiceContext(state: ApprovalRuntimeState): string {
   if (state.phase !== 'paused' || !state.sessionId || !state.key) return '';
-  return `approval:${state.sessionId}:${state.key}`;
+  return `${state.key.startsWith('input:') ? 'input' : 'approval'}:${state.sessionId}:${state.key}`;
 }
 
 export default function App() {
@@ -74,29 +96,34 @@ export default function App() {
   const [trace, setTrace] = useState<TraceItem[]>(() => restoredCheckpoint?.trace ?? []);
   const [response, setResponse] = useState(() => restoredCheckpoint?.response ?? '');
   const [narrations, setNarrations] = useState<ProgressNarration[]>(() => restoredCheckpoint
-    ? [{ id: 'restored-checkpoint', content: 'Approval checkpoint restored from this tab.' }]
+    ? [{ id: 'restored-checkpoint', content: 'Human checkpoint restored from this tab.' }]
     : []);
   const [notices, setNotices] = useState<OperationNotice[]>([]);
   const [approvals, setApprovals] = useState<ApprovalCall[]>(() => restoredCheckpoint?.approvals ?? []);
+  const [inputRequests, setInputRequests] = useState<UserInputRequest[]>(() => restoredCheckpoint?.inputRequests ?? []);
   const [health, setHealth] = useState<Health | null>(null);
   const [healthPhase, setHealthPhase] = useState<HealthPhase>('loading');
   const [error, setError] = useState('');
   const [metrics, setMetrics] = useState<{ totalTokens?: number; totalCostUsd?: number }>({});
   const [systems, setSystems] = useState<SystemStatuses>(() => initialSystemsForTrace(restoredCheckpoint?.trace ?? []));
   const [speechCancelToken, setSpeechCancelToken] = useState(0);
+  const [checkpointVoiceState, setCheckpointVoiceState] = useState<CheckpointVoiceState>(INITIAL_CHECKPOINT_VOICE);
+  const [checkpointVoiceTranscript, setCheckpointVoiceTranscript] = useState('');
   const activeStream = useRef<AbortController | null>(null);
   const streamGeneration = useRef(0);
   const localNarrationSequence = useRef(0);
   const outcomePanel = useRef<HTMLElement | null>(null);
+  const commandComposer = useRef<CommandComposerHandle | null>(null);
   const outcomeRevealed = useRef(false);
   const restoredCheckpointActiveRef = useRef(Boolean(restoredCheckpoint));
   const decideRef = useRef<(status: 'allow' | 'deny') => void>(() => undefined);
+  const submitInputRef = useRef<(answers: Array<{ toolCallId: string; content: string }>) => void>(() => undefined);
   const approvalStateRef = useRef<ApprovalRuntimeState>({
     phase,
     sessionId,
-    key: approvalKey(approvals),
+    key: checkpointKey(approvals, inputRequests),
   });
-  approvalStateRef.current = { phase, sessionId, key: approvalKey(approvals) };
+  approvalStateRef.current = { phase, sessionId, key: checkpointKey(approvals, inputRequests) };
 
   const revealOutcome = useCallback((focusAlert = false) => {
     if (outcomeRevealed.current && !focusAlert) return;
@@ -120,9 +147,9 @@ export default function App() {
   }, [sessionId]);
 
   useEffect(() => {
-    if (phase !== 'paused' || !sessionId || approvals.length === 0) return;
-    persistPausedCheckpoint({ sessionId, approvals, response, trace });
-  }, [approvals, phase, response, sessionId, trace]);
+    if (phase !== 'paused' || !sessionId || (approvals.length === 0 && inputRequests.length === 0)) return;
+    persistPausedCheckpoint({ sessionId, approvals, inputRequests, response, trace });
+  }, [approvals, inputRequests, phase, response, sessionId, trace]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -137,11 +164,11 @@ export default function App() {
           harness: !result.harness.connected
             ? { state: 'offline', detail: 'TrueForge is not reachable' }
             : restoredStillActive
-              ? { state: 'active', detail: 'Approval checkpoint restored' }
+              ? { state: 'active', detail: 'Human checkpoint restored' }
               : currentPhase === 'running'
                 ? { state: 'active', detail: 'TrueForge is running the turn' }
                 : currentPhase === 'paused'
-                  ? { state: 'active', detail: 'Waiting for your approval' }
+                  ? { state: 'active', detail: currentPhase === 'paused' && approvalStateRef.current.key.startsWith('input:') ? 'Waiting for your input' : 'Waiting for your approval' }
                   : { state: 'ready', detail: 'TrueForge connected' },
         }));
       })
@@ -168,13 +195,14 @@ export default function App() {
       if (event.status === 'paused') {
         approvalStateRef.current = { ...approvalStateRef.current, phase: 'paused' };
         setPhase('paused');
-        setSystems((current) => ({ ...current, harness: { state: 'active', detail: 'Waiting for your approval' } }));
+        setSystems((current) => ({ ...current, harness: { state: 'active', detail: 'Waiting for your response' } }));
       }
       if (event.status === 'done') {
         restoredCheckpointActiveRef.current = false;
         approvalStateRef.current = { ...approvalStateRef.current, phase: 'done', key: '' };
         clearPausedCheckpoint();
         setApprovals([]);
+        setInputRequests([]);
         finishTurnTelemetry();
         setPhase('done');
         setSystems((current) => ({ ...current, harness: { state: 'ready', detail: 'Turn completed' } }));
@@ -184,6 +212,7 @@ export default function App() {
         approvalStateRef.current = { ...approvalStateRef.current, phase: 'idle', key: '' };
         clearPausedCheckpoint();
         setApprovals([]);
+        setInputRequests([]);
         finishTurnTelemetry();
         setPhase('idle');
         setSystems((current) => ({ ...current, harness: { state: 'ready', detail: 'Turn cancelled' } }));
@@ -244,8 +273,26 @@ export default function App() {
         sessionId: approvalStateRef.current.sessionId,
         key: approvalKey(event.calls),
       };
+      setInputRequests([]);
+      setCheckpointVoiceTranscript('');
       setApprovals(event.calls);
       setPhase('paused');
+      setSystems((current) => ({ ...current, harness: { state: 'active', detail: 'Waiting for your approval' } }));
+      revealOutcome();
+      return;
+    }
+    if (event.type === 'input_required') {
+      restoredCheckpointActiveRef.current = false;
+      approvalStateRef.current = {
+        phase: 'paused',
+        sessionId: approvalStateRef.current.sessionId,
+        key: inputRequestKey(event.requests),
+      };
+      setApprovals([]);
+      setCheckpointVoiceTranscript('');
+      setInputRequests(event.requests);
+      setPhase('paused');
+      setSystems((current) => ({ ...current, harness: { state: 'active', detail: 'Waiting for your input' } }));
       revealOutcome();
       return;
     }
@@ -289,6 +336,7 @@ export default function App() {
     setNarrations([]);
     setNotices([]);
     setApprovals([]);
+    setInputRequests([]);
     setTrace([]);
     setMetrics({});
     setPhase('running');
@@ -357,7 +405,6 @@ export default function App() {
           if (narration) addLocalNarration(narration, true);
         },
       );
-      setApprovals([]);
     } catch (reason) {
       if (isAbortError(reason)) return;
       if (accepted) {
@@ -379,11 +426,94 @@ export default function App() {
   }, [addLocalNarration, approvals, beginStream, revealOutcome, sessionId]);
   decideRef.current = decide;
 
-  const handleVoiceTranscript = useCallback((text: string, sourceContextKey: string): boolean => {
-    if (!sourceContextKey.startsWith('approval:')) return false;
+  const submitInput = useCallback(async (answers: Array<{ toolCallId: string; content: string }>) => {
+    const expectedSessionId = sessionId;
+    const expectedRequests = inputRequests;
+    const expectedKey = inputRequestKey(expectedRequests);
     const current = approvalStateRef.current;
-    const currentContextKey = approvalVoiceContext(current);
+    const byToolCallId = new Map(answers.map((answer) => [answer.toolCallId, answer.content.trim()]));
+    const expectedResponses = expectedRequests.map((request) => ({
+      threadId: request.threadId,
+      toolCallId: request.toolCallId,
+      content: byToolCallId.get(request.toolCallId) ?? '',
+    }));
+    if (
+      !expectedSessionId ||
+      expectedRequests.length === 0 ||
+      answers.length !== expectedRequests.length ||
+      expectedResponses.some((answer) => answer.content.length === 0) ||
+      current.phase !== 'paused' ||
+      current.sessionId !== expectedSessionId ||
+      current.key !== expectedKey
+    ) return;
+
+    restoredCheckpointActiveRef.current = false;
+    approvalStateRef.current = { phase: 'running', sessionId: expectedSessionId, key: '' };
+    setSpeechCancelToken((value) => value + 1);
+    startApprovalResumeTiming();
+    setError('');
+    setPhase('running');
+    const stream = beginStream();
+    let accepted = false;
+
+    try {
+      await resolveToolResponse(
+        expectedSessionId,
+        expectedResponses,
+        stream.onEvent,
+        stream.controller.signal,
+        () => {
+          accepted = true;
+          clearPausedCheckpoint();
+          setInputRequests([]);
+          finishApprovalResumeTiming();
+          addLocalNarration(inputAnswerNarration(expectedResponses), true);
+        },
+      );
+    } catch (reason) {
+      if (isAbortError(reason)) return;
+      if (accepted) {
+        approvalStateRef.current = { phase: 'error', sessionId: expectedSessionId, key: '' };
+        clearPausedCheckpoint();
+        setInputRequests([]);
+        setError('Your answer was accepted, but the resumed execution stream was interrupted. This checkpoint is no longer retryable.');
+        setPhase('error');
+      } else {
+        approvalStateRef.current = { phase: 'paused', sessionId: expectedSessionId, key: expectedKey };
+        setInputRequests(expectedRequests);
+        setError(reason instanceof Error ? reason.message : 'Could not send your answer to Jarvis.');
+        setPhase('paused');
+      }
+      revealOutcome(true);
+    } finally {
+      if (activeStream.current === stream.controller) activeStream.current = null;
+    }
+  }, [addLocalNarration, beginStream, inputRequests, revealOutcome, sessionId]);
+  submitInputRef.current = submitInput;
+
+  const handleVoiceTranscript = useCallback((text: string, sourceContextKey: string): boolean => {
+    if (!sourceContextKey.startsWith('approval:') && !sourceContextKey.startsWith('input:')) return false;
+    const current = approvalStateRef.current;
+    const currentContextKey = checkpointVoiceContext(current);
     if (!currentContextKey || sourceContextKey !== currentContextKey) return true;
+    const transcript = text.trim();
+    setCheckpointVoiceTranscript(transcript);
+
+    if (!transcript) {
+      addLocalNarration("I didn't catch that. Tap reply by voice and try again, or use the controls on screen.", true);
+      return true;
+    }
+
+    if (sourceContextKey.startsWith('input:')) {
+      const pending = inputRequests;
+      if (pending.length !== 1) {
+        addLocalNarration('Please answer each question in the checkpoint on screen.', true);
+        return true;
+      }
+      const answer = voiceInputAnswer(pending[0], transcript);
+      submitInputRef.current([{ toolCallId: pending[0].toolCallId, content: answer.content }]);
+      return true;
+    }
 
     const decision = voiceApprovalDecision(text);
     if (!decision) {
@@ -392,7 +522,12 @@ export default function App() {
     }
     decideRef.current(decision);
     return true;
-  }, [addLocalNarration]);
+  }, [addLocalNarration, inputRequests]);
+
+  const requestCheckpointVoice = useCallback(() => {
+    setCheckpointVoiceTranscript('');
+    commandComposer.current?.toggleVoice();
+  }, []);
 
   const reset = useCallback(() => {
     restoredCheckpointActiveRef.current = false;
@@ -410,6 +545,8 @@ export default function App() {
     setNarrations([]);
     setNotices([]);
     setApprovals([]);
+    setInputRequests([]);
+    setCheckpointVoiceTranscript('');
     setError('');
     setMetrics({});
     outcomeRevealed.current = false;
@@ -432,13 +569,22 @@ export default function App() {
     if (hasToolIssues && phase === 'running') return 'Tool issue — agent continuing';
     if (hasToolIssues && phase === 'done') return 'Completed with issues';
     if (phase === 'running') return 'Agent working';
-    if (phase === 'paused') return restoredCheckpointActiveRef.current ? 'Approval restored' : 'Awaiting approval';
+    if (phase === 'paused') {
+      if (restoredCheckpointActiveRef.current) return 'Checkpoint restored';
+      return inputRequests.length > 0 ? 'Waiting for your input' : 'Awaiting approval';
+    }
     if (phase === 'done') return 'Task complete';
     if (phase === 'error') return 'Attention needed';
     return sessionId ? 'Session reattached' : 'Ready for command';
   })();
 
-  const voiceContextKey = approvalVoiceContext(approvalStateRef.current);
+  const voiceContextKey = checkpointVoiceContext(approvalStateRef.current);
+  const checkpointMode = approvals.length > 0 ? 'approval' : inputRequests.length > 0 ? 'input' : undefined;
+  const checkpointVoice = {
+    ...checkpointVoiceState,
+    transcript: checkpointVoiceTranscript,
+    onToggle: requestCheckpointVoice,
+  };
 
   return (
     <div className="app-shell">
@@ -449,20 +595,34 @@ export default function App() {
           <Activity size={14} aria-hidden="true" />
           <span>{statusLabel}</span>
         </div>
-        <button type="button" className="new-session" onClick={reset}><RotateCcw size={14} /> New session</button>
+        <div className="topbar-actions">
+          <details className="systems-popover">
+            <summary>
+              <Cable size={14} aria-hidden="true" />
+              <span>Systems</span>
+              <ChevronDown className="disclosure-chevron" size={13} aria-hidden="true" />
+            </summary>
+            <div className="systems-popover-panel">
+              <SystemRail health={health} systems={systems} />
+            </div>
+          </details>
+          <button type="button" className="new-session" onClick={reset}><RotateCcw size={14} /> <span>New session</span></button>
+        </div>
       </header>
 
       <main id="main-content" tabIndex={-1}>
         <div className="workspace">
           <CommandComposer
+            ref={commandComposer}
             command={command}
             onChange={setCommand}
             onSubmit={execute}
             onVoiceTranscript={handleVoiceTranscript}
             disabled={phase === 'running'}
-            approvalMode={phase === 'paused'}
+            checkpointMode={checkpointMode}
             speechCancelToken={speechCancelToken}
             voiceContextKey={voiceContextKey}
+            onVoiceStateChange={setCheckpointVoiceState}
           />
           <div className="operations-column">
             <OutcomePanel
@@ -472,18 +632,31 @@ export default function App() {
               narrations={narrations}
               notices={notices}
               approvals={approvals}
+              inputRequests={inputRequests}
+              checkpointVoice={checkpointVoice}
               error={error}
               metrics={metrics}
               realtimeVoiceAvailable={Boolean(health?.audio?.realtime)}
               neuralTtsAvailable={Boolean(health?.audio?.tts)}
               onDecision={decide}
+              onInputSubmit={submitInput}
             />
-            <ExecutionTrace items={trace} phase={phase} />
+            <details className="trace-disclosure">
+              <summary>
+                <span className="trace-summary-copy">
+                  <Activity size={15} aria-hidden="true" />
+                  <strong>Activity</strong>
+                  <small>{trace.length === 0 ? 'No events yet' : `${trace.length} ${trace.length === 1 ? 'event' : 'events'}`}</small>
+                </span>
+                <ChevronDown className="disclosure-chevron" size={15} aria-hidden="true" />
+              </summary>
+              <div className="trace-drawer">
+                <ExecutionTrace items={trace} phase={phase} />
+              </div>
+            </details>
           </div>
-          <SystemRail health={health} systems={systems} />
         </div>
       </main>
-      <footer><span>TRUEFORGE HARNESS</span><span>TOOLS VIA MCP</span><span>CODE IN SANDBOX</span><span>HUMAN IN CONTROL</span></footer>
     </div>
   );
 }

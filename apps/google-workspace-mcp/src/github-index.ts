@@ -3,11 +3,13 @@ import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { bearerTokenMatches } from './auth.js';
 import { githubEnv } from './github-config.js';
+import { registerGithubPermissionTools } from './github-permission-tools.js';
 import { registerGithubOpsTools } from './github-tools.js';
 
 function createServer(): McpServer {
   const server = new McpServer({ name: 'jarvis-github-ops', version: '0.1.0' });
   registerGithubOpsTools(server);
+  registerGithubPermissionTools(server);
   return server;
 }
 

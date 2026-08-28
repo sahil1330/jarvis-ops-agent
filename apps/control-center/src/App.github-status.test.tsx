@@ -15,6 +15,7 @@ vi.mock('./lib/api', () => ({
     mode: 'live',
   }),
   resolveApproval: vi.fn(),
+  resolveToolResponse: vi.fn(),
   runTurn: vi.fn(),
 }));
 
@@ -61,6 +62,7 @@ describe('App GitHub system feedback', () => {
 
     await waitFor(() => expect(vi.mocked(runTurn)).toHaveBeenCalledTimes(1));
     const systems = screen.getByRole('complementary', { name: 'Connected systems' });
+    (systems.closest('details') as HTMLDetailsElement).open = true;
     const github = within(systems).getByText('GitHub').closest('div');
     expect(github).not.toBeNull();
     expect(within(github as HTMLElement).getByText('Failed')).toBeVisible();
@@ -96,6 +98,7 @@ describe('App GitHub system feedback', () => {
 
     await waitFor(() => expect(vi.mocked(runTurn)).toHaveBeenCalledTimes(1));
     const systems = screen.getByRole('complementary', { name: 'Connected systems' });
+    (systems.closest('details') as HTMLDetailsElement).open = true;
     const github = within(systems).getByText('GitHub').closest('div');
     expect(within(github as HTMLElement).getByText('Available')).toBeVisible();
   });
@@ -110,6 +113,7 @@ describe('App GitHub system feedback', () => {
         toolName: 'publish_verified_fix',
         arguments: '{"baseSha":"abc"}',
       }],
+      inputRequests: [],
       trace: [{
         id: 'tool:repo-restored',
         category: 'tool',
@@ -126,9 +130,10 @@ describe('App GitHub system feedback', () => {
     });
 
     render(<App />);
-    await screen.findByText('Approval restored');
+    await screen.findAllByText('Checkpoint restored');
 
     const systems = screen.getByRole('complementary', { name: 'Connected systems' });
+    (systems.closest('details') as HTMLDetailsElement).open = true;
     const github = within(systems).getByText('GitHub').closest('div');
     expect(within(github as HTMLElement).getByText('Failed')).toBeVisible();
     expect(document.querySelector('.status-pill')).toHaveClass('has-issues');
@@ -137,5 +142,41 @@ describe('App GitHub system feedback', () => {
     await waitFor(() => expect(vi.mocked(resolveApproval)).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getAllByText('Completed with issues').length).toBeGreaterThan(0));
     expect(within(github as HTMLElement).getByText('Failed')).toBeVisible();
+  });
+
+  it('keeps a newly streamed approval visible after resolving the previous approval', async () => {
+    persistPausedCheckpoint({
+      sessionId: 'session-approval-chain',
+      response: 'First action is ready.',
+      approvals: [{
+        threadId: 'main',
+        toolCallId: 'call-first',
+        toolName: 'send_email',
+        arguments: '{"to":["first@example.com"],"subject":"First"}',
+      }],
+      inputRequests: [],
+      trace: [],
+    });
+    vi.mocked(resolveApproval).mockImplementation(async (_sessionId, _decisions, onEvent, _signal, onAccepted) => {
+      onAccepted?.();
+      onEvent({ type: 'status', status: 'running' });
+      onEvent({
+        type: 'approval',
+        calls: [{
+          threadId: 'main',
+          toolCallId: 'call-second',
+          toolName: 'send_email',
+          arguments: '{"to":["second@example.com"],"subject":"Second"}',
+        }],
+      });
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve action' }));
+
+    await waitFor(() => expect(vi.mocked(resolveApproval)).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('second@example.com')).toBeVisible();
+    expect(screen.getByText('Second')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Permission required' })).toBeVisible();
   });
 });

@@ -40,7 +40,7 @@ The external writes named in the manifest are:
 
 - `send_email`
 - `move_calendar_event`
-- `publish_verified_fix`
+- the bounded GitHub write set: verified-fix publication, PR updates/reviews, Actions dispatch/rerun/cancel, environment configuration, and Copilot agent-task start
 
 The control center may submit a user decision, but it cannot bypass TrueForge and invoke those writes directly.
 
@@ -61,7 +61,7 @@ The control center has two complementary views:
 
 The mission view is derived from execution evidence and is deliberately conservative. For example, creating a sandbox does not mark verification complete.
 
-The Systems rail shows TrueForge, Gmail, Calendar, GitHub and Sandbox independently. GitHub changes state only when the real `get_repository_snapshot` or `publish_verified_fix` tool identity appears in the trace. Tool failures remain visible and cause the final status to say **Completed with issues** instead of presenting a false clean success.
+The Systems rail shows TrueForge, Gmail, Calendar, GitHub and Sandbox independently. GitHub changes state only when a real registered GitHub MCP tool identity appears in the trace. Tool failures remain visible and cause the final status to say **Completed with issues** instead of presenting a false clean success.
 
 ## Safety architecture
 
@@ -73,7 +73,7 @@ Credentials are compartmentalized:
 - Daytona receives no Google, GitHub, MCP, model or voice credentials.
 - OpenAI Realtime is a voice renderer only and has no tool authority.
 
-The GitHub connector is intentionally narrow: fixed repository/base configuration, writes only under `demo-lab/`, bounded file payloads, safe Git ref names, stale-base revalidation, cleanup on PR failure, and no merge tool.
+The GitHub connector is intentionally bounded: it targets one configured repository and exposes permission-aligned reads for code, pull requests, Actions, environments, and agent tasks. Every mutation is approval-gated. Verified code publication remains restricted to `demo-lab/`, with bounded payloads, safe Git ref names, stale-base revalidation, and cleanup on PR failure. Merge, delete, secrets, and unrestricted code-write tools are absent.
 
 The local hackathon runtime binds the orchestrator/MCP services to loopback. A public multi-user product would need an end-user authenticated application boundary and is outside this submission.
 

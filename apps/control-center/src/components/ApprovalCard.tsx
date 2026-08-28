@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Ban, Check, Mail, ShieldAlert, CalendarClock } from 'lucide-react';
-import type { ApprovalCall } from '../types';
+import type { ApprovalCall, CheckpointVoiceControl } from '../types';
+import { CheckpointVoiceReply } from './CheckpointVoiceReply';
 
 function prettyArguments(raw: string): Array<[string, string]> {
   try {
@@ -17,10 +18,11 @@ function prettyArguments(raw: string): Array<[string, string]> {
 type Props = {
   calls: ApprovalCall[];
   busy: boolean;
+  voice?: CheckpointVoiceControl;
   onDecision: (status: 'allow' | 'deny') => void;
 };
 
-export function ApprovalCard({ calls, busy, onDecision }: Props) {
+export function ApprovalCard({ calls, busy, voice, onDecision }: Props) {
   const primary = calls[0];
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -45,6 +47,7 @@ export function ApprovalCard({ calls, busy, onDecision }: Props) {
         </div>
       </div>
       <p id="approval-description">Jarvis has finished its analysis. Nothing external happens until you approve the action below.</p>
+      {voice && <CheckpointVoiceReply kind="approval" voice={voice} disabled={busy} />}
 
       {calls.map((call) => {
         const ActionIcon = call.toolName.includes('email') ? Mail : CalendarClock;

@@ -14,6 +14,7 @@ vi.mock('./lib/api', () => ({
     mode: 'live',
   }),
   resolveApproval: vi.fn(),
+  resolveToolResponse: vi.fn(),
   runTurn: vi.fn(),
 }));
 
@@ -52,6 +53,7 @@ describe('App live feedback', () => {
     expect(failure).toHaveTextContent('invalid_grant');
     expect(screen.getByText(/Jarvis response: I could not read Gmail/i)).toBeInTheDocument();
     expect(screen.queryByRole('log')).not.toBeInTheDocument();
+    (screen.getByRole('complementary', { name: 'Connected systems' }).closest('details') as HTMLDetailsElement).open = true;
     expect(screen.getByText('Failed', { selector: '.system-status span' })).toBeVisible();
     expect(screen.getAllByText('Completed with issues').length).toBeGreaterThan(0);
     await waitFor(() => expect(document.activeElement).toBe(failure));
@@ -92,6 +94,7 @@ describe('App live feedback', () => {
     const failure = failureTitle.closest('[role="alert"]');
     expect(failure).not.toBeNull();
     expect(screen.getAllByText('Completed with issues').length).toBeGreaterThan(0);
+    (screen.getByRole('complementary', { name: 'Connected systems' }).closest('details') as HTMLDetailsElement).open = true;
     expect(screen.getByText('Failed', { selector: '.system-status span' })).toBeVisible();
     await waitFor(() => expect(document.activeElement).toBe(failure));
   });

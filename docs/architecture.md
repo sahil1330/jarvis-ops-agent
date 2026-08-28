@@ -10,7 +10,7 @@ Jarvis is intentionally local-first for the hackathon. The browser is an interfa
 | Orchestrator | TrueForge SDK session/turn streaming, `user.tool_approval`, STT/TTS/Realtime bridge | OpenAI key; optional TrueForge token |
 | TrueForge | Model loop, dynamic subagents, MCP routing, sandbox lifecycle, context/session state, approval enforcement | Model/provider and connector configuration |
 | Google Workspace MCP | Gmail search/thread read, email send, Calendar read/move, explicit bounded memory tools | Google OAuth credentials + dedicated MCP bearer |
-| GitHub operations MCP | Allowlisted repository snapshot and bounded verified-fix publication | Fine-grained GitHub token + separate MCP bearer |
+| GitHub operations MCP | Permission-aligned repository, PR, Actions, environment and agent-task operations against one allowlisted repository | Fine-grained GitHub token + separate MCP bearer; all writes approval-gated |
 | Daytona sandbox | Isolated code/test execution against the exact evidence SHA | No Google/GitHub/model/voice credentials |
 | `demo-lab/` | Small deterministic product fixture used by the engineering verification loop | No secrets / external services |
 
@@ -58,7 +58,7 @@ External writes are named in the TrueForge agent manifest:
 
 - `send_email`
 - `move_calendar_event`
-- `publish_verified_fix`
+- all GitHub mutation tools, including verified-fix publication, PR updates/reviews, Actions dispatch/rerun/cancel, environment configuration, and agent-task start
 
 The approval sequence is:
 
@@ -95,10 +95,13 @@ The GitHub MCP is a separate process/listener/credential from the Google MCP.
 - The configured repository is fixed by environment and not supplied by the model.
 - The golden demo doctor additionally pins it to `sahil1330/jarvis-ops-agent`.
 - `get_repository_snapshot` is read-only and returns the exact configured base SHA.
+- `list_pull_requests` is the authoritative authenticated route for open or remaining PR status; a snapshot is never treated as PR evidence.
+- Bounded read tools cover repository text files, pull requests/files/reviews, Actions workflows/runs/jobs, environments, and Copilot agent tasks.
+- Permission-aligned mutations cover PR metadata/reviews, workflow dispatch/rerun/cancel, environment configuration, and agent-task start, and all require TrueForge approval.
 - `publish_verified_fix` only accepts files below `demo-lab/`, bounded count/content sizes, and `jarvis/…` branch names that satisfy Git ref restrictions.
 - The base branch is rechecked immediately before making the fix commit visible through a branch.
 - Failed PR creation cleans the new branch created by the attempt.
-- The tool can create a branch, commit and PR; it has no merge operation.
+- The connector has no merge, delete, secrets, or unrestricted code-write operation.
 - The GitHub PAT remains only in the GitHub MCP process. The sandbox works with public source/evidence, not that credential.
 
 ## Voice boundary

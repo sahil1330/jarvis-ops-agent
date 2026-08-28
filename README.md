@@ -171,17 +171,20 @@ contains exactly one controlled change: `MAX_RESUME_BYTES` is lowered from 6 MiB
 
 The incident branch is never merged into `main`.
 
-## GitHub publication boundary
+## GitHub connector boundary
 
-The GitHub MCP is purpose-built for the golden mission:
+The GitHub MCP exposes a permission-aligned, fixed-repository surface:
 
 - `get_repository_snapshot` reads only the configured repository/base branch and returns its exact SHA.
+- repository content, pull-request, Actions workflow/run, environment, and Copilot agent-task reads are bounded and return explicit schemas;
+- `list_pull_requests` is the authoritative route for open or remaining PR status;
+- PR metadata/reviews, workflow dispatch/rerun/cancel, environment configuration, and agent-task start operations are available only through TrueForge approval;
 - `publish_verified_fix` accepts only bounded changes under `demo-lab/`.
 - the caller must supply the previously observed base SHA;
 - the base SHA is rechecked before publication so stale evidence cannot publish;
 - PR-creation failure cleans up the branch created by that attempt;
-- the tool creates a branch, commit and pull request only; **it has no merge operation**;
-- `publish_verified_fix` is in TrueForge `requireApprovalForTools`.
+- the connector has no merge, delete, secrets, or unrestricted code-write tool;
+- every GitHub write tool is in TrueForge `requireApprovalForTools`.
 
 The GitHub PAT stays in the GitHub MCP process. It never enters Daytona, the browser, the Realtime renderer, or model context.
 

@@ -8,6 +8,14 @@ export type ApprovalCall = {
   arguments: string;
 };
 
+export type UserInputRequest = {
+  threadId: string;
+  toolCallId: string;
+  toolName: string;
+  question: string;
+  options: string[];
+};
+
 export type OperationalSystem = 'gmail' | 'calendar' | 'sandbox';
 
 type ToolPresentation = {
@@ -32,6 +40,7 @@ export type ClientEvent =
   | { type: 'narration'; id: string; content: string }
   | { type: 'delta'; content: string }
   | { type: 'approval'; calls: ApprovalCall[] }
+  | { type: 'input_required'; requests: UserInputRequest[] }
   | { type: 'metrics'; totalTokens?: number; totalCostUsd?: number }
   | { type: 'error'; message: string };
 
@@ -39,6 +48,9 @@ type EventIndex = Map<string, TrueForgeApi.TurnStreamingEvent>;
 const DEFAULT_MAX_EVENTS = 256;
 const MAX_ERROR_DETAIL_CHARACTERS = 600;
 const MAX_PREAMBLE_CHARACTERS = 600;
+const MAX_INPUT_QUESTION_CHARACTERS = 1_000;
+const MAX_INPUT_OPTION_CHARACTERS = 500;
+const MAX_INPUT_OPTIONS = 20;
 
 const TOOL_PRESENTATIONS: Record<string, ToolPresentation> = {
   search_emails: {
@@ -124,6 +136,28 @@ function parseJson(value: string): unknown {
   } catch {
     return value;
   }
+}
+
+function userInputPresentation(rawArguments: string): Pick<UserInputRequest, 'question' | 'options'> {
+  const parsed = parseJson(rawArguments);
+  if (!isRecord(parsed)) {
+    return { question: 'Jarvis needs additional information to continue.', options: [] };
+  }
+
+  const question = typeof parsed.question === 'string'
+    ? parsed.question.trim().slice(0, MAX_INPUT_QUESTION_CHARACTERS)
+    : '';
+  const options = Array.isArray(parsed.options)
+    ? [...new Set(parsed.options
+      .filter((option): option is string => typeof option === 'string')
+      .map((option) => option.trim().slice(0, MAX_INPUT_OPTION_CHARACTERS))
+      .filter(Boolean))].slice(0, MAX_INPUT_OPTIONS)
+    : [];
+
+  return {
+    question: question || 'Jarvis needs additional information to continue.',
+    options,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -445,6 +479,42 @@ export class SessionEventState {
             state: 'waiting',
           },
           { type: 'approval', calls },
+        ];
+      }
+
+      case 'tool.response_required': {
+        const requests: UserInputRequest[] = [];
+        for (const reference of event.toolCalls) {
+          const source = this.events.get(reference.sourceEventId);
+          if (source?.type !== 'model.message') continue;
+          const call = source.toolCalls?.find((candidate) => candidate.id === reference.id);
+          if (!call) continue;
+          requests.push({
+            threadId: event.threadId,
+            toolCallId: reference.id,
+            toolName: call.toolInfo.name,
+            ...userInputPresentation(call.function.arguments),
+          });
+        }
+        if (requests.length !== event.toolCalls.length || requests.length === 0) {
+          return [
+            {
+              type: 'error',
+              message: 'The requested user input could not be reconstructed safely. Start a new turn and try again.',
+            },
+          ];
+        }
+        return [
+          { type: 'status', status: 'paused' },
+          {
+            type: 'trace',
+            id: event.id,
+            category: 'harness',
+            title: 'Your input is required',
+            detail: `${requests.length} question${requests.length === 1 ? '' : 's'} waiting`,
+            state: 'waiting',
+          },
+          { type: 'input_required', requests },
         ];
       }
 

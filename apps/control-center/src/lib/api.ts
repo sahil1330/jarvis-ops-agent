@@ -7,6 +7,12 @@ type ApprovalDecision = {
   reason?: string;
 };
 
+type ToolResponse = {
+  threadId: string;
+  toolCallId: string;
+  content: string;
+};
+
 async function parseError(response: Response): Promise<string> {
   try {
     const payload = (await response.json()) as { error?: string };
@@ -116,6 +122,22 @@ export async function resolveApproval(
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ decisions }),
+    signal,
+  });
+  await consumeNdjson(response, onEvent, onAccepted);
+}
+
+export async function resolveToolResponse(
+  sessionId: string,
+  responses: ToolResponse[],
+  onEvent: (event: StreamEvent) => void,
+  signal?: AbortSignal,
+  onAccepted?: () => void,
+): Promise<void> {
+  const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/tool-responses`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ responses }),
     signal,
   });
   await consumeNdjson(response, onEvent, onAccepted);

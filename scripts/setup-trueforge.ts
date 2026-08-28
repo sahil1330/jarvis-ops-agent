@@ -20,6 +20,34 @@ const model = process.env.TRUEFORGE_MODEL?.trim();
 
 if (!model) throw new Error('TRUEFORGE_MODEL must be set to a model already configured in your TrueForge instance');
 
+const githubReadTools: string[] = [
+  'get_repository_snapshot',
+  'read_repository_file',
+  'list_pull_requests',
+  'get_pull_request',
+  'list_pull_request_files',
+  'list_pull_request_reviews',
+  'list_workflows',
+  'list_workflow_runs',
+  'get_workflow_run',
+  'list_environments',
+  'get_environment',
+  'list_agent_tasks',
+  'get_agent_task',
+];
+
+const githubWriteTools: string[] = [
+  'publish_verified_fix',
+  'update_pull_request',
+  'request_pull_request_reviewers',
+  'submit_pull_request_review',
+  'dispatch_workflow',
+  'rerun_workflow_run',
+  'cancel_workflow_run',
+  'configure_environment',
+  'start_agent_task',
+];
+
 const client = new TrueForge({
   baseUrl,
   ...(process.env.TRUEFORGE_TOKEN ? { token: process.env.TRUEFORGE_TOKEN } : {}),
@@ -43,12 +71,12 @@ Operating rules:
 4. Reuse successful current-turn reads. Do not repeat equivalent Gmail, Calendar, memory, or repository reads unless the underlying state changed or the previous result was incomplete.
 5. Use memory only when saved preferences materially affect the outcome. Persist only explicit remember/forget requests and never credentials or inferred sensitive information.
 6. Never invent messages, meetings, repository state, tests, failures, commits, or tool results. Distinguish “not checked,” “reported by client,” “reproduced,” and “verified fixed.”
-7. get_repository_snapshot is the source of truth for repository, base branch, and base SHA. Never ask the GitHub connector to operate on another repository.
+7. get_repository_snapshot is the source of truth for repository, base branch, and base SHA. list_pull_requests is the source of truth for open or remaining PR status; never infer PR status from the repository snapshot or fall back to public web search. Never ask the GitHub connector to operate on another repository.
 8. The sandbox gets source code and task context, not Google, GitHub, model, MCP-bearer, or voice credentials.
 9. A green pre-existing test suite is not proof that a client-reported edge case works. The engineering subagent must create or run a targeted reproduction first.
 10. A fix is verified only when: the targeted reproduction fails before the patch, passes after the patch, and the broader regression suite still passes after the patch.
 11. Before publish_verified_fix, state the exact base SHA, changed file paths, reproduction evidence, post-fix verification, and that a branch+PR will be created without merging.
-12. Sending email, moving Calendar events, and publishing a fix are external side effects and must pass through TrueForge approval. If denied, never retry or work around the denial.
+12. Sending email, moving Calendar events, and every GitHub write are external side effects and must pass through TrueForge approval. GitHub merge, delete, secrets, and unrestricted code-write operations are not available. If approval is denied, never retry or work around the denial.
 13. After an approved write, report concrete identifiers returned by tools. Avoid redundant verification reads when the write response is definitive.
 14. Finish objective-driven missions with a readiness brief: deadline, requirements, what was verified, what was changed, approval/action result, and anything still unverified.
 
@@ -67,9 +95,9 @@ const manifest: TrueForgeApi.AgentSpec = {
     },
     {
       name: githubMcpName,
-      enableTools: ['get_repository_snapshot', 'publish_verified_fix'],
-      preloadTools: ['get_repository_snapshot'],
-      requireApprovalForTools: ['publish_verified_fix'],
+      enableTools: [...githubReadTools, ...githubWriteTools],
+      preloadTools: ['get_repository_snapshot', 'list_pull_requests'],
+      requireApprovalForTools: githubWriteTools,
       preload: false,
     },
   ],

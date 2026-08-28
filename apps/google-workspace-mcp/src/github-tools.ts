@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { githubEnv } from './github-config.js';
 
 const API = 'https://api.github.com';
+const GITHUB_API_VERSION = '2026-03-10';
 const MAX_ERROR_CHARS = 800;
 const ALLOWED_PREFIX = 'demo-lab/';
 
@@ -14,20 +15,20 @@ type GitCommitResponse = { sha: string; tree: { sha: string } };
 type CreatedGitCommitResponse = { sha: string };
 type PullResponse = { number: number; html_url: string };
 
-function textResult(value: unknown) {
+export function textResult(value: unknown) {
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }],
     structuredContent: { result: value },
   };
 }
 
-async function githubRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function githubRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API}${path}`, {
     ...init,
     headers: {
       accept: 'application/vnd.github+json',
       authorization: `Bearer ${githubEnv.JARVIS_GITHUB_TOKEN}`,
-      'x-github-api-version': '2022-11-28',
+      'x-github-api-version': GITHUB_API_VERSION,
       'user-agent': 'jarvis-ops-agent',
       'content-type': 'application/json',
       ...(init.headers ?? {}),
@@ -38,10 +39,12 @@ async function githubRequest<T>(path: string, init: RequestInit = {}): Promise<T
     throw new Error(`GitHub API ${response.status}: ${body || response.statusText}`);
   }
   if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  const body = await response.text();
+  if (!body) return undefined as T;
+  return JSON.parse(body) as T;
 }
 
-function repoPath(): string {
+export function repoPath(): string {
   return `/repos/${githubEnv.JARVIS_GITHUB_REPOSITORY}`;
 }
 
@@ -88,6 +91,15 @@ export function registerGithubOpsTools(server: McpServer): void {
       title: 'Inspect demo repository',
       description: 'Read the allowlisted demo repository base revision before sandbox verification.',
       inputSchema: {},
+      outputSchema: {
+        result: z.object({
+          repository: z.string(),
+          baseBranch: z.string(),
+          baseSha: z.string().regex(/^[0-9a-f]{40}$/i),
+          message: z.string(),
+          allowedWritePrefix: z.string(),
+        }),
+      },
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     },
     async () => {
@@ -118,6 +130,17 @@ export function registerGithubOpsTools(server: McpServer): void {
         prTitle: z.string().min(1).max(180),
         prBody: z.string().min(1).max(8_000),
         verificationSummary: z.string().min(1).max(2_000),
+      },
+      outputSchema: {
+        result: z.object({
+          published: z.literal(true),
+          repository: z.string(),
+          baseSha: z.string().regex(/^[0-9a-f]{40}$/i),
+          commitSha: z.string().regex(/^[0-9a-f]{40}$/i),
+          branchName: z.string(),
+          pullRequest: z.object({ number: z.number().int().positive(), url: z.string().url() }),
+          changedFiles: z.array(z.string()),
+        }),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },

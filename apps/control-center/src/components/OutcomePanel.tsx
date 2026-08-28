@@ -4,8 +4,10 @@ import { useConversationalReveal } from '../hooks/useConversationalReveal';
 import { useSpeechOutput } from '../hooks/useSpeechOutput';
 import { markFirstVoiceStart } from '../lib/latency';
 import { consumeSpeechSegments } from '../lib/speech-segments';
-import type { AgentPhase, ApprovalCall, OperationNotice, ProgressNarration } from '../types';
+import type { AgentPhase, ApprovalCall, CheckpointVoiceControl, OperationNotice, ProgressNarration, UserInputRequest } from '../types';
 import { ApprovalCard } from './ApprovalCard';
+import { MarkdownMessage } from './MarkdownMessage';
+import { UserInputCard } from './UserInputCard';
 
 type Props = {
   panelRef: RefObject<HTMLElement | null>;
@@ -14,11 +16,14 @@ type Props = {
   narrations: ProgressNarration[];
   notices: OperationNotice[];
   approvals: ApprovalCall[];
+  inputRequests: UserInputRequest[];
+  checkpointVoice: CheckpointVoiceControl;
   error: string;
   metrics: { totalTokens?: number; totalCostUsd?: number };
   realtimeVoiceAvailable: boolean;
   neuralTtsAvailable: boolean;
   onDecision: (status: 'allow' | 'deny') => void;
+  onInputSubmit: (answers: Array<{ toolCallId: string; content: string }>) => void;
 };
 
 const phaseLabels: Record<AgentPhase, string> = {
@@ -33,9 +38,9 @@ const STREAM_IDLE_FLUSH_MS = 750;
 const MIN_IDLE_FLUSH_CHARACTERS = 24;
 const RESPONSE_OVERLAP_ANCHOR = 256;
 
-function OutcomeHeading({ phase, hasResponse, hasIssues }: { phase: AgentPhase; hasResponse: boolean; hasIssues: boolean }) {
+function OutcomeHeading({ phase, hasResponse, hasIssues, inputPending }: { phase: AgentPhase; hasResponse: boolean; hasIssues: boolean; inputPending: boolean }) {
   if (phase === 'error') return <>Jarvis needs your attention</>;
-  if (phase === 'paused') return <>Review before Jarvis continues</>;
+  if (phase === 'paused') return inputPending ? <>Answer so Jarvis can continue</> : <>Review before Jarvis continues</>;
   if (hasIssues && phase === 'done') return <>Completed with an issue</>;
   if (hasIssues) return <>A connected tool needs attention</>;
   if (phase === 'done') return <>Task complete</>;
@@ -46,7 +51,16 @@ function OutcomeHeading({ phase, hasResponse, hasIssues }: { phase: AgentPhase; 
 
 function approvalSummary(calls: ApprovalCall[]): string {
   const labels = calls.map((call) => call.toolName.includes('email') ? 'send an email' : call.toolName.includes('calendar') ? 'change your calendar' : call.toolName.replaceAll('_', ' '));
-  return `I need your approval before I ${labels.join(' and ')}. Please review the exact action on screen.`;
+  return `I need your approval before I ${labels.join(' and ')}. Review the action, then say “approve it” or “deny it”, or use the buttons.`;
+}
+
+function inputRequestSummary(requests: UserInputRequest[]): string {
+  const first = requests[0];
+  if (!first) return '';
+  const instruction = first.options.length > 0
+    ? 'Choose on screen, or tap reply by voice and say an option or answer naturally.'
+    : 'Type on screen, or tap reply by voice and answer naturally.';
+  return `I need your input before I can continue. ${first.question} ${instruction}`;
 }
 
 function rollingAppend(previous: string, current: string): { incoming: string; reset: boolean } {
@@ -75,18 +89,22 @@ export function OutcomePanel({
   narrations,
   notices,
   approvals,
+  inputRequests,
+  checkpointVoice,
   error,
   metrics,
   realtimeVoiceAvailable,
   neuralTtsAvailable,
   onDecision,
+  onInputSubmit,
 }: Props) {
-  const hasFeedback = response.length > 0 || narrations.length > 0 || notices.length > 0 || approvals.length > 0 || error.length > 0;
+  const hasFeedback = response.length > 0 || narrations.length > 0 || notices.length > 0 || approvals.length > 0 || inputRequests.length > 0 || error.length > 0;
   const hasIssues = notices.some((notice) => notice.severity === 'error');
   const attentionTarget = useRef<HTMLDivElement | null>(null);
   const attentionKey = error ? `fatal:${error}` : notices.at(-1)?.id;
   const spokenResponseSnapshot = useRef('');
   const spokenNarrationIds = useRef(new Set<string>());
+  const spokenCheckpointKey = useRef('');
   const pendingSpeech = useRef('');
   const voice = useSpeechOutput(realtimeVoiceAvailable, neuralTtsAvailable);
   const revealedResponse = useConversationalReveal(response, phase === 'running');
@@ -149,14 +167,23 @@ export function OutcomePanel({
       voice.stop();
       spokenResponseSnapshot.current = '';
       spokenNarrationIds.current.clear();
+      spokenCheckpointKey.current = '';
       pendingSpeech.current = '';
       return;
     }
 
     if (phase === 'paused' || phase === 'done') {
-      const flushedCount = flushPendingSpeech();
-      if (phase === 'paused' && approvals.length > 0 && response.trim().length === 0 && flushedCount === 0) {
-        enqueueSpeech(approvalSummary(approvals));
+      flushPendingSpeech();
+      if (phase === 'paused') {
+        const checkpointKey = approvals.length > 0
+          ? `approval:${approvals.map((call) => call.toolCallId).join('|')}`
+          : inputRequests.length > 0
+            ? `input:${inputRequests.map((request) => request.toolCallId).join('|')}`
+            : '';
+        if (checkpointKey && checkpointKey !== spokenCheckpointKey.current) {
+          spokenCheckpointKey.current = checkpointKey;
+          speakNow(approvals.length > 0 ? approvalSummary(approvals) : inputRequestSummary(inputRequests));
+        }
       }
       return;
     }
@@ -165,7 +192,9 @@ export function OutcomePanel({
       pendingSpeech.current = '';
       speakNow(`I need your attention. ${error}`);
     }
-  }, [approvals, enqueueSpeech, error, flushPendingSpeech, phase, response, speakNow, voice.stop]);
+  }, [approvals, error, flushPendingSpeech, inputRequests, phase, speakNow, voice.stop]);
+
+  const phaseLabel = phase === 'paused' && inputRequests.length > 0 ? 'Input needed' : phaseLabels[phase];
 
   const voiceLabel = voice.mode === 'realtime'
     ? 'Realtime natural voice'
@@ -178,11 +207,11 @@ export function OutcomePanel({
       <div className="outcome-heading">
         <div>
           <span>LIVE OUTCOME</span>
-          <h2 id="outcome-title"><OutcomeHeading phase={phase} hasResponse={response.length > 0} hasIssues={hasIssues} /></h2>
+          <h2 id="outcome-title"><OutcomeHeading phase={phase} hasResponse={response.length > 0} hasIssues={hasIssues} inputPending={inputRequests.length > 0} /></h2>
         </div>
         <div className={`outcome-phase phase-${phase}${hasIssues ? ' has-issues' : ''}`} role="status" aria-live="polite" aria-atomic="true">
           {phase === 'running' ? <LoaderCircle size={13} aria-hidden="true" /> : <i aria-hidden="true" />}
-          {hasIssues && phase === 'done' ? 'Issues found' : phaseLabels[phase]}
+          {hasIssues && phase === 'done' ? 'Issues found' : phaseLabel}
         </div>
         <button
           type="button"
@@ -233,17 +262,18 @@ export function OutcomePanel({
           <div className="agent-response">
             <div className="response-label"><i aria-hidden="true" /> JARVIS RESPONSE</div>
             <span className="sr-only">Jarvis response: {response}</span>
-            <p aria-hidden="true">
-              {revealedResponse}
-              {revealedResponse.length < response.length && <span className="response-caret" />}
-            </p>
+            <MarkdownMessage
+              content={revealedResponse}
+              streaming={revealedResponse.length < response.length}
+            />
             {(metrics.totalTokens !== undefined || metrics.totalCostUsd !== undefined) && (
               <small>{metrics.totalTokens?.toLocaleString() ?? '—'} tokens · ${metrics.totalCostUsd?.toFixed(4) ?? '—'}</small>
             )}
           </div>
         )}
 
-        {approvals.length > 0 && <ApprovalCard calls={approvals} busy={phase === 'running'} onDecision={onDecision} />}
+        {approvals.length > 0 && <ApprovalCard calls={approvals} busy={phase === 'running'} voice={checkpointVoice} onDecision={onDecision} />}
+        {inputRequests.length > 0 && <UserInputCard requests={inputRequests} busy={phase === 'running'} voice={checkpointVoice} onSubmit={onInputSubmit} />}
 
         {!hasFeedback && (
           <div className={`outcome-empty phase-${phase}`}>

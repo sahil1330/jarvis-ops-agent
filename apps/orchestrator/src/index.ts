@@ -8,6 +8,7 @@ import { createRealtimeVoiceCall, realtimeVoiceAvailable } from './realtime-voic
 import {
   createSession,
   resolveApprovals,
+  resolveToolResponses,
   runCommand,
   SessionBusyError,
   trueforgeHealth,
@@ -31,6 +32,18 @@ const approvalSchema = z.object({
       }),
     )
     .min(1),
+});
+const toolResponseSchema = z.object({
+  responses: z
+    .array(
+      z.object({
+        threadId: z.string().min(1),
+        toolCallId: z.string().min(1),
+        content: z.string().trim().min(1).max(4_000),
+      }),
+    )
+    .min(1)
+    .max(20),
 });
 
 app.get('/api/health', async (_request, response) => {
@@ -116,6 +129,15 @@ app.post('/api/sessions/:sessionId/approvals', async (request, response, next) =
       })),
       response,
     );
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/sessions/:sessionId/tool-responses', async (request, response, next) => {
+  try {
+    const { responses } = toolResponseSchema.parse(request.body);
+    await resolveToolResponses(request.params.sessionId, responses, response);
   } catch (error) {
     next(error);
   }

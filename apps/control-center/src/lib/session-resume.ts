@@ -1,4 +1,4 @@
-import type { ApprovalCall, TraceItem } from '../types';
+import type { ApprovalCall, TraceItem, UserInputRequest } from '../types';
 
 const SESSION_KEY = 'jarvis.trueforge.session';
 const CHECKPOINT_KEY = 'jarvis.trueforge.paused-checkpoint';
@@ -8,6 +8,7 @@ const TRACE_STATES = new Set<TraceItem['state']>(['active', 'done', 'waiting', '
 export type PausedCheckpoint = {
   sessionId: string;
   approvals: ApprovalCall[];
+  inputRequests: UserInputRequest[];
   response: string;
   trace: TraceItem[];
 };
@@ -38,6 +39,17 @@ function isApprovalCall(value: unknown): value is ApprovalCall {
     typeof value.toolName === 'string' && value.toolName.length > 0 &&
     typeof value.arguments === 'string' &&
     isOptionalString(value.serverName)
+  );
+}
+
+function isUserInputRequest(value: unknown): value is UserInputRequest {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.threadId === 'string' && value.threadId.length > 0 &&
+    typeof value.toolCallId === 'string' && value.toolCallId.length > 0 &&
+    typeof value.toolName === 'string' && value.toolName.length > 0 &&
+    typeof value.question === 'string' && value.question.length > 0 && value.question.length <= 1_000 &&
+    Array.isArray(value.options) && value.options.length <= 20 && value.options.every((option) => typeof option === 'string')
   );
 }
 
@@ -89,12 +101,16 @@ export function readPausedCheckpoint(storage?: Storage): PausedCheckpoint | null
     }
 
     const sessionId = value.sessionId;
-    const approvals = value.approvals;
+    const approvals = value.approvals ?? [];
+    const inputRequests = value.inputRequests ?? [];
     const response = value.response;
     const trace = value.trace;
     if (
       typeof sessionId !== 'string' || sessionId.length === 0 ||
-      !Array.isArray(approvals) || approvals.length === 0 || approvals.length > 50 || !approvals.every(isApprovalCall) ||
+      !Array.isArray(approvals) || approvals.length > 50 || !approvals.every(isApprovalCall) ||
+      !Array.isArray(inputRequests) || inputRequests.length > 20 || !inputRequests.every(isUserInputRequest) ||
+      (approvals.length === 0 && inputRequests.length === 0) ||
+      (approvals.length > 0 && inputRequests.length > 0) ||
       typeof response !== 'string' ||
       !Array.isArray(trace) || trace.length > 100 || !trace.every(isTraceItem)
     ) {
@@ -102,7 +118,7 @@ export function readPausedCheckpoint(storage?: Storage): PausedCheckpoint | null
       return null;
     }
 
-    return { sessionId, approvals, response, trace };
+    return { sessionId, approvals, inputRequests, response, trace };
   } catch {
     removeCheckpoint(target);
     return null;
