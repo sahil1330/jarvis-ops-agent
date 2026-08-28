@@ -22,6 +22,21 @@ describe('GitHub system status from TrueForge trace', () => {
     expect(githubSystemStatusFromTrace(trace('Search Emails completed', 'done', 'Tool · search_emails'))).toBeNull();
   });
 
+  it('recognizes permission-aligned GitHub tools by title or tool identity', () => {
+    expect(githubSystemStatusFromTrace(trace('List Pull Requests in progress', 'active'))).toEqual({
+      state: 'active',
+      detail: 'List Pull Requests in progress',
+    });
+    expect(githubSystemStatusFromTrace(trace('List pull requests completed', 'done', 'Tool · list_pull_requests'))).toEqual({
+      state: 'ready',
+      detail: 'List Pull Requests completed',
+    });
+    expect(githubSystemStatusFromTrace(trace('Cancel Workflow Run failed', 'error'))).toEqual({
+      state: 'error',
+      detail: 'Cancel Workflow Run failed',
+    });
+  });
+
   it('restores the chronologically newest GitHub state even when trace insertion order is older', () => {
     const items = [
       trace('Get Repository Snapshot failed', 'error', 'latest failure', 30),

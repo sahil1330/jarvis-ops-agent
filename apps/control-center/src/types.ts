@@ -42,6 +42,27 @@ export type ApprovalCall = {
   arguments: string;
 };
 
+export type UserInputRequest = {
+  threadId: string;
+  toolCallId: string;
+  toolName: string;
+  question: string;
+  options: string[];
+};
+
+export type CheckpointVoiceState = {
+  supported: boolean;
+  listening: boolean;
+  transcribing: boolean;
+  autoStopsOnSilence: boolean;
+  error: string;
+};
+
+export type CheckpointVoiceControl = CheckpointVoiceState & {
+  transcript: string;
+  onToggle: () => void;
+};
+
 export type StreamEvent =
   | { type: 'status'; status: 'connected' | 'running' | 'paused' | 'done' | 'cancelled' }
   | Omit<TraceItem, 'timestamp'> & { type: 'trace' }
@@ -50,6 +71,7 @@ export type StreamEvent =
   | ProgressNarration & { type: 'narration' }
   | { type: 'delta'; content: string }
   | { type: 'approval'; calls: ApprovalCall[] }
+  | { type: 'input_required'; requests: UserInputRequest[] }
   | { type: 'metrics'; totalTokens?: number; totalCostUsd?: number }
   | { type: 'error'; message: string };
 

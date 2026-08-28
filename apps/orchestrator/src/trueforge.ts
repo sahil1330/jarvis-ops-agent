@@ -103,6 +103,12 @@ export type ApprovalDecision = {
   reason?: string;
 };
 
+export type ToolResponse = {
+  threadId: string;
+  toolCallId: string;
+  content: string;
+};
+
 export async function resolveApprovals(
   sessionId: string,
   decisions: ApprovalDecision[],
@@ -116,6 +122,20 @@ export async function resolveApprovals(
       decision.status === 'allow'
         ? { status: 'allow' }
         : { status: 'deny', reason: decision.reason ?? 'Denied by the user' },
+  }));
+  await pipeStream(sessionId, response, input);
+}
+
+export async function resolveToolResponses(
+  sessionId: string,
+  responses: ToolResponse[],
+  response: Response,
+): Promise<void> {
+  const input: TrueForgeApi.UserToolResponseEvent[] = responses.map((item) => ({
+    type: 'user.tool_response',
+    threadId: item.threadId,
+    toolCallId: item.toolCallId,
+    content: item.content,
   }));
   await pipeStream(sessionId, response, input);
 }

@@ -23,11 +23,33 @@ describe('resumable TrueForge session state', () => {
       sessionId: 'session-123',
       response: 'Verified fix ready.',
       approvals: [{ threadId: 'main', toolCallId: 'call-1', toolName: 'publish_verified_fix', arguments: '{"baseSha":"abc"}' }],
+      inputRequests: [],
       trace: [{ id: 'tool:1', category: 'tool', title: 'Publish verified fix', state: 'waiting', timestamp: 1 }],
     }, storage);
 
     expect(readSessionId(storage)).toBe('session-123');
     expect(readPausedCheckpoint(storage)?.approvals[0]?.toolName).toBe('publish_verified_fix');
+  });
+
+  it('persists a paused user-input checkpoint without treating it as an approval', () => {
+    const storage = memoryStorage();
+    persistPausedCheckpoint({
+      sessionId: 'session-123',
+      response: '',
+      approvals: [],
+      inputRequests: [{
+        threadId: 'main',
+        toolCallId: 'question-1',
+        toolName: 'ask_user_question',
+        question: 'Which client is this for?',
+        options: ['Acme', 'Globex'],
+      }],
+      trace: [],
+    }, storage);
+
+    const checkpoint = readPausedCheckpoint(storage);
+    expect(checkpoint?.approvals).toEqual([]);
+    expect(checkpoint?.inputRequests[0]?.question).toBe('Which client is this for?');
   });
 
   it('rejects and removes malformed approval entries from storage', () => {
@@ -59,7 +81,7 @@ describe('resumable TrueForge session state', () => {
   it('clears both identifiers on New Session', () => {
     const storage = memoryStorage();
     persistSessionId('session-123', storage);
-    persistPausedCheckpoint({ sessionId: 'session-123', response: '', approvals: [{ threadId: 'main', toolCallId: 'call-1', toolName: 'send_email', arguments: '{}' }], trace: [] }, storage);
+    persistPausedCheckpoint({ sessionId: 'session-123', response: '', approvals: [{ threadId: 'main', toolCallId: 'call-1', toolName: 'send_email', arguments: '{}' }], inputRequests: [], trace: [] }, storage);
     clearResumableSession(storage);
     expect(readSessionId(storage)).toBeNull();
     expect(readPausedCheckpoint(storage)).toBeNull();

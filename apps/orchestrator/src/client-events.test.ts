@@ -72,6 +72,77 @@ describe('SessionEventState', () => {
     });
   });
 
+  it('turns TrueForge response-required events into a visible user-input checkpoint', () => {
+    const state = new SessionEventState();
+    state.ingest({
+      type: 'model.message',
+      id: 'message-question',
+      threadId: 'main',
+      createdAt: new Date().toISOString(),
+      content: null,
+      toolCalls: [
+        {
+          id: 'call-question',
+          type: 'function',
+          function: {
+            name: 'ask_user_question',
+            arguments: JSON.stringify({
+              question: 'What should I use to identify the demo?',
+              options: ['Use the client name', 'Proceed with a generic checklist'],
+            }),
+          },
+          toolInfo: { type: 'truefoundry-system', name: 'ask_user_question' },
+        },
+      ],
+    } as TrueForgeApi.TurnStreamingEvent);
+
+    const events = state.ingest({
+      type: 'tool.response_required',
+      id: 'response-required-1',
+      threadId: 'main',
+      createdAt: new Date().toISOString(),
+      toolCalls: [{ id: 'call-question', sourceEventId: 'message-question' }],
+    } as TrueForgeApi.TurnStreamingEvent);
+
+    expect(events).toEqual([
+      { type: 'status', status: 'paused' },
+      {
+        type: 'trace',
+        id: 'response-required-1',
+        category: 'harness',
+        title: 'Your input is required',
+        detail: '1 question waiting',
+        state: 'waiting',
+      },
+      {
+        type: 'input_required',
+        requests: [{
+          threadId: 'main',
+          toolCallId: 'call-question',
+          toolName: 'ask_user_question',
+          question: 'What should I use to identify the demo?',
+          options: ['Use the client name', 'Proceed with a generic checklist'],
+        }],
+      },
+    ]);
+  });
+
+  it('fails safely when a response-required source event is missing', () => {
+    const state = new SessionEventState();
+    const events = state.ingest({
+      type: 'tool.response_required',
+      id: 'response-required-missing',
+      threadId: 'main',
+      createdAt: new Date().toISOString(),
+      toolCalls: [{ id: 'call-question', sourceEventId: 'missing-message' }],
+    } as TrueForgeApi.TurnStreamingEvent);
+
+    expect(events).toEqual([{
+      type: 'error',
+      message: 'The requested user input could not be reconstructed safely. Start a new turn and try again.',
+    }]);
+  });
+
   it('only forwards root-agent text deltas', () => {
     const state = new SessionEventState();
     expect(

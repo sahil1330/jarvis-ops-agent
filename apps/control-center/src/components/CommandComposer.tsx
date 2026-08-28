@@ -1,17 +1,23 @@
-import { useEffect, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
 import { ArrowUp, Mic, MicOff, ShieldCheck } from 'lucide-react';
 import { useSpeechInput } from '../hooks/useSpeechInput';
 import { getHealth } from '../lib/api';
+import type { CheckpointVoiceState } from '../types';
 
 type Props = {
   command: string;
   disabled: boolean;
-  approvalMode?: boolean;
+  checkpointMode?: 'approval' | 'input';
   speechCancelToken?: number;
   voiceContextKey?: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
   onVoiceTranscript?: (value: string, contextKey: string) => boolean;
+  onVoiceStateChange?: (state: CheckpointVoiceState) => void;
+};
+
+export type CommandComposerHandle = {
+  toggleVoice: () => void;
 };
 
 const suggestions = [
@@ -20,16 +26,20 @@ const suggestions = [
   'Find urgent unread emails and prepare the replies I need to send.',
 ];
 
-export function CommandComposer({
+export const CommandComposer = forwardRef<CommandComposerHandle, Props>(function CommandComposer({
   command,
   disabled,
-  approvalMode = false,
+  checkpointMode,
   speechCancelToken = 0,
   voiceContextKey = '',
   onChange,
   onSubmit,
   onVoiceTranscript,
-}: Props) {
+  onVoiceStateChange,
+}: Props, ref) {
+  const checkpointPending = checkpointMode !== undefined;
+  const approvalMode = checkpointMode === 'approval';
+  const inputMode = checkpointMode === 'input';
   const [neuralStt, setNeuralStt] = useState(false);
   const speech = useSpeechInput((text, contextKey) => {
     if (onVoiceTranscript?.(text, contextKey)) return;
@@ -48,6 +58,18 @@ export function CommandComposer({
     if (speechCancelToken > 0) speech.cancel();
   }, [speech.cancel, speechCancelToken]);
 
+  useEffect(() => {
+    onVoiceStateChange?.({
+      supported: speech.supported,
+      listening: speech.listening,
+      transcribing: speech.transcribing,
+      autoStopsOnSilence: speech.autoStopsOnSilence,
+      error: speech.error,
+    });
+  }, [onVoiceStateChange, speech.autoStopsOnSilence, speech.error, speech.listening, speech.supported, speech.transcribing]);
+
+  useImperativeHandle(ref, () => ({ toggleVoice: speech.toggle }), [speech.toggle]);
+
   const speechStatus = speech.listening
     ? speech.autoStopsOnSilence
       ? 'Listening… I’ll stop when you pause'
@@ -58,6 +80,8 @@ export function CommandComposer({
         ? speech.error
         : approvalMode
           ? 'Say “Approve it” or “Deny it” · buttons remain available'
+          : inputMode
+            ? 'Answer on screen or tap the microphone to reply'
           : speech.mode === 'neural'
             ? speech.autoStopsOnSilence
               ? 'Neural voice input ready · auto-stop on silence'
@@ -67,10 +91,12 @@ export function CommandComposer({
   return (
     <section className="command-panel" aria-labelledby="command-title">
       <div className="eyebrow"><ShieldCheck size={14} /> Approval-gated agent</div>
-      <h1 id="command-title">{approvalMode ? 'Your approval is required' : 'What should I handle?'}</h1>
+      <h1 id="command-title">{approvalMode ? 'Your approval is required' : inputMode ? 'Jarvis needs one detail' : 'What should I handle?'}</h1>
       <p className="lead" id="command-description">
         {approvalMode
           ? 'Review the checkpoint, then use the approval buttons or an explicit voice decision. No new command starts while this checkpoint is pending.'
+          : inputMode
+            ? 'Jarvis is paused while it waits for your answer. Respond in the checkpoint or use voice, and it will continue the same task.'
           : 'Speak or type one objective. Jarvis investigates, verifies and pauses before external side effects.'}
       </p>
 
@@ -78,7 +104,7 @@ export function CommandComposer({
         className={`composer ${speech.listening ? 'is-listening' : ''}`}
         onSubmit={(event) => {
           event.preventDefault();
-          if (!approvalMode) onSubmit();
+          if (!checkpointPending) onSubmit();
         }}
       >
         <label className="sr-only" htmlFor="jarvis-command">Command for Jarvis</label>
@@ -87,11 +113,11 @@ export function CommandComposer({
           value={command}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) => {
-            if (!approvalMode && (event.metaKey || event.ctrlKey) && event.key === 'Enter') onSubmit();
+            if (!checkpointPending && (event.metaKey || event.ctrlKey) && event.key === 'Enter') onSubmit();
           }}
-          placeholder={approvalMode ? 'Approval pending — use voice or the checkpoint buttons' : 'Tell Jarvis the outcome you need…'}
+          placeholder={approvalMode ? 'Approval pending — use voice or the checkpoint buttons' : inputMode ? 'Input pending — answer in the checkpoint below' : 'Tell Jarvis the outcome you need…'}
           rows={4}
-          disabled={disabled || approvalMode || speech.transcribing}
+          disabled={disabled || checkpointPending || speech.transcribing}
           aria-describedby="command-description command-shortcut"
           aria-keyshortcuts="Control+Enter Meta+Enter"
         />
@@ -101,8 +127,8 @@ export function CommandComposer({
             className="icon-button"
             onClick={speech.toggle}
             disabled={!speech.supported || disabled || speech.transcribing}
-            aria-label={speech.listening ? 'Stop listening and transcribe' : approvalMode ? 'Use voice approval' : 'Use voice input'}
-            title={approvalMode ? 'Voice approval: say Approve it or Deny it' : speech.mode === 'neural'
+            aria-label={speech.listening ? 'Stop listening and transcribe' : approvalMode ? 'Use voice approval' : inputMode ? 'Answer Jarvis with voice' : 'Use voice input'}
+            title={approvalMode ? 'Voice approval: say Approve it or Deny it' : inputMode ? 'Speak the answer Jarvis needs' : speech.mode === 'neural'
               ? speech.autoStopsOnSilence
                 ? 'Neural voice input · stops automatically after you pause'
                 : 'Neural voice input'
@@ -116,14 +142,14 @@ export function CommandComposer({
           <button
             type="submit"
             className="run-button"
-            disabled={disabled || approvalMode || speech.transcribing || command.trim().length < 2}
+            disabled={disabled || checkpointPending || speech.transcribing || command.trim().length < 2}
           >
             Run command <ArrowUp size={16} />
           </button>
         </div>
       </form>
 
-      {!approvalMode && (
+      {!checkpointPending && command.trim().length === 0 && (
         <div className="suggestions" aria-label="Suggested commands">
           {suggestions.map((suggestion, index) => (
             <button type="button" key={suggestion} onClick={() => onChange(suggestion)} disabled={disabled}>
@@ -134,4 +160,4 @@ export function CommandComposer({
       )}
     </section>
   );
-}
+});

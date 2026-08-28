@@ -14,6 +14,7 @@ vi.mock('./lib/api', () => ({
     mode: 'live',
   }),
   resolveApproval: vi.fn(),
+  resolveToolResponse: vi.fn(),
   runTurn: vi.fn(),
 }));
 
@@ -21,7 +22,7 @@ describe('App accessibility', () => {
   it('exposes an understandable idle command center without detectable violations', async () => {
     const { container } = render(<App />);
 
-    await waitFor(() => expect(screen.getByText('Ready for command')).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText('Ready for command').length).toBeGreaterThan(0));
     expect(screen.getByRole('link', { name: 'Skip to command center' })).toHaveAttribute('href', '#main-content');
     expect(screen.getByRole('textbox', { name: 'Command for Jarvis' })).toHaveAttribute(
       'aria-keyshortcuts',

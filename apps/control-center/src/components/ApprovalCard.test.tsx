@@ -56,4 +56,33 @@ describe('ApprovalCard', () => {
 
     expect(results.violations.map((violation) => violation.id)).toEqual([]);
   });
+
+  it('offers an explicit conversational voice decision', () => {
+    const onToggle = vi.fn();
+    render(
+      <ApprovalCard
+        busy={false}
+        onDecision={vi.fn()}
+        voice={{
+          supported: true,
+          listening: false,
+          transcribing: false,
+          autoStopsOnSilence: true,
+          error: '',
+          transcript: '',
+          onToggle,
+        }}
+        calls={[{
+          threadId: 'main',
+          toolCallId: 'call-voice',
+          toolName: 'send_email',
+          arguments: '{}',
+        }]}
+      />,
+    );
+
+    expect(screen.getByText('Say “approve it” or “deny it”.')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Give approval decision by voice' }));
+    expect(onToggle).toHaveBeenCalledOnce();
+  });
 });

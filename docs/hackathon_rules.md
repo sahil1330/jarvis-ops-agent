@@ -1,0 +1,1 @@
+https://www.wemakedevs.org/hackathons/trueforge/rules

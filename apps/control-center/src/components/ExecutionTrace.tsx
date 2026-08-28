@@ -13,7 +13,7 @@ const icons = {
 const phaseLabels: Record<AgentPhase, string> = {
   idle: 'ready',
   running: 'streaming',
-  paused: 'approval needed',
+  paused: 'human checkpoint',
   done: 'complete',
   error: 'stopped',
 };
