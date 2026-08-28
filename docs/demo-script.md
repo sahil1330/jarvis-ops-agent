@@ -17,7 +17,7 @@ JARVIS_GITHUB_BASE_BRANCH=demo/client-regression
    - a calendar event around the recording time named **Atlas product demo**;
    - a client email/thread that explicitly asks to see a roughly **5 MB PDF resume upload**, **job recommendations**, and **analytics events**, and mentions that the larger resume failed previously.
 3. Keep `main` healthy. The controlled regression must exist only on `demo/client-regression`, where `demo-lab/src/product.js` lowers `MAX_RESUME_BYTES` from 6 MiB to 1 MiB.
-4. Start TrueForge, Google MCP, GitHub MCP, orchestrator, and control center.
+4. Start TrueForge with `npm run trueforge`, then the Jarvis servers with `npm run dev`.
 5. Run:
 
 ```bash

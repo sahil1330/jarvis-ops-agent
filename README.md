@@ -59,6 +59,7 @@ docs/
 
 ## Prerequisites
 
+- Linux, macOS, or **Windows with WSL2** (Ubuntu). Native Windows is not a supported host for this submission: local TrueForge (`npx @truefoundry/trueforge`) was unreliable there, which is why this repo was developed in WSL. Clone and run inside the Linux filesystem, not from PowerShell against a `\\wsl.localhost\...` path.
 - Node.js 22.14 or newer
 - A model provider configured inside TrueForge
 - An OpenAI API key for neural STT and Realtime/TTS voice
@@ -101,29 +102,24 @@ JARVIS_GITHUB_BASE_BRANCH=demo/client-regression
 
 Gmail always addresses the mailbox authenticated by OAuth through `users/me`; there is no runtime mailbox-override setting.
 
-Start the two MCP services:
+Keep TrueForge running, then start the Jarvis servers with one command:
 
 ```bash
-npm run dev:mcp
-npm run dev:github
+npm run trueforge
+npm run dev
 ```
 
-The Google MCP defaults to `127.0.0.1:8788`; the isolated GitHub MCP defaults to `127.0.0.1:8789`. Each has its own bearer.
+`npm run dev` launches the Google MCP, GitHub MCP, orchestrator, and control center together. The Google MCP defaults to `127.0.0.1:8788`; the isolated GitHub MCP defaults to `127.0.0.1:8789`. Each has its own bearer. TrueForge stays in its own process because it owns model/sandbox settings and is usually left running across Jarvis restarts.
 
-Register/update both connectors and the Jarvis agent:
+Register/update both connectors and the Jarvis agent (requires TrueForge and the MCP servers):
 
 ```bash
 npm run setup:trueforge
 ```
 
-Start the orchestrator and UI:
-
-```bash
-npm run dev:api
-npm run dev:ui
-```
-
 Open `http://localhost:5173`.
+
+The individual `dev:mcp`, `dev:github`, `dev:api`, and `dev:ui` scripts remain available when you need to isolate one service.
 
 ## Live demo preparation
 

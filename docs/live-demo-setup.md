@@ -89,11 +89,10 @@ Start the services:
 
 ```bash
 npm run trueforge
-npm run dev:mcp
-npm run dev:github
-npm run dev:api
-npm run dev:ui
+npm run dev
 ```
+
+`npm run dev` starts the Google MCP, GitHub MCP, orchestrator, and control center in one terminal. Leave TrueForge in its own process; it is the harness, not one of the Jarvis workspace servers.
 
 Run the deterministic gates:
 
